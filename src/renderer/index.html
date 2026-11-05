@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:;">
+  <title>Glassbreath</title>
+  <link rel="stylesheet" href="../../dist/styles.css">
+</head>
+<body data-screen="consent">
+
+  <header class="bar">
+    <span class="mark">Glassbreath</span>
+    <span class="source" id="source-badge" hidden><i class="ph ph-record"></i><span id="source-label">Live camera</span></span>
+    <nav class="nav" id="nav" hidden>
+      <button type="button" data-go="stage" class="on">Blow</button>
+      <button type="button" data-go="rack">Cooling rack</button>
+      <button type="button" id="btn-stop" class="stop"><i class="ph ph-power"></i>Turn off camera</button>
+    </nav>
+  </header>
+
+  <!-- Consent -->
+  <main class="screen" id="consent" aria-labelledby="consent-title">
+    <div class="furnace" aria-hidden="true"><div class="furnace-mouth"></div></div>
+    <p class="note hand furnace-note" aria-hidden="true">the furnace heats up while the app learns your breathing. about 30 seconds.</p>
+
+    <div class="consent-copy">
+      <h1 id="consent-title">Blow glass<br>with your breath</h1>
+      <p class="lede">Sit back so the webcam sees your head and chest. Each slow breath adds a band to a glowing glass vessel. Smile when you like it, and it cools on the rack.</p>
+      <ul class="facts">
+        <li><i class="ph ph-webcam" aria-hidden="true"></i><span>The camera watches your chest rise and fall, and small colour changes in your face, to estimate breathing and pulse.</span></li>
+        <li><i class="ph ph-lock-simple" aria-hidden="true"></i><span>Video is processed on this computer and never leaves it. Nothing is recorded.</span></li>
+        <li><i class="ph ph-hand-heart" aria-hidden="true"></i><span>This is a toy, not a medical device. The numbers are rough estimates.</span></li>
+      </ul>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btn-camera"><i class="ph ph-webcam"></i>Turn on camera</button>
+        <button type="button" class="btn secondary" id="btn-replay"><i class="ph ph-play"></i>Use the sample recording</button>
+      </div>
+      <label class="tele">
+        <input type="checkbox" id="tele-toggle" role="switch">
+        <span class="switch" aria-hidden="true"></span>
+        <span id="tele-text">Share anonymous usage counts with Presage: off.</span>
+      </label>
+      <button type="button" class="linkish" id="btn-data">How your data is handled</button>
+      <p class="consent-error" id="consent-error" role="alert" hidden></p>
+    </div>
+  </main>
+
+  <!-- Blowing stage -->
+  <main class="screen" id="stage" hidden aria-label="Glass blowing">
+    <canvas id="glass" aria-label="Your glass vessel"></canvas>
+
+    <div class="count" aria-live="polite">
+      <b id="count-main">Warming up</b>
+      <span id="count-sub">the furnace is heating</span>
+    </div>
+
+    <div class="heat" id="heat">
+      <div class="heat-lbl"><span>Furnace</span><span id="heat-text">0 of 30 s</span></div>
+      <div class="heat-track"><div class="heat-fill" id="heat-fill"></div></div>
+    </div>
+
+    <div class="cam">
+      <video id="preview" autoplay muted playsinline aria-label="Webcam preview"></video>
+      <span class="cam-tag" id="cam-tag">Camera</span>
+      <p class="hint hand" id="hint" aria-live="polite">Finding you…</p>
+    </div>
+
+    <div class="cut hand" id="cut-hint" hidden>
+      <svg width="120" height="80" viewBox="0 0 120 80" aria-hidden="true"><path d="M112 20 C 80 6, 40 14, 10 52" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M10 52 l 4 -18 M10 52 l 17 -5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <p>Smile to cut<br>the glass</p>
+      <small>or press Space</small>
+      <div class="smile-meter" aria-hidden="true"><div id="smile-fill"></div></div>
+    </div>
+
+    <div class="read">
+      <div><span>Breathing</span><strong id="read-rate">warming up</strong></div>
+      <div><span>Pulse</span><strong id="read-pulse">warming up</strong></div>
+      <em>Estimates from the camera. Not medical readings.</em>
+    </div>
+
+    <div class="done" id="done" hidden>
+      <p class="done-kicker">Cooled</p>
+      <h2 id="done-name">Amber</h2>
+      <p class="done-meta" id="done-meta"></p>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btn-keep"><i class="ph ph-archive-box"></i>Keep on the rack</button>
+        <button type="button" class="btn secondary" id="btn-share"><i class="ph ph-share-network"></i>Share</button>
+        <button type="button" class="btn secondary" id="btn-again"><i class="ph ph-arrow-counter-clockwise"></i>Blow another</button>
+      </div>
+      <p class="done-note">Kept vessels are saved on this computer only, as a picture and its shape. No video, no readings.</p>
+    </div>
+
+    <p class="trace-lbl">Your breathing, last 40 seconds</p>
+    <canvas id="trace" aria-label="Live breathing trace"></canvas>
+  </main>
+
+  <!-- Gallery -->
+  <main class="screen" id="rack" hidden aria-labelledby="rack-title">
+    <div class="rack-head">
+      <div>
+        <h2 id="rack-title">Cooling rack</h2>
+        <p class="sub" id="rack-sub">Saved on this computer only.</p>
+      </div>
+      <button type="button" class="btn secondary" id="btn-delete-all"><i class="ph ph-trash"></i>Delete all</button>
+    </div>
+    <ol class="shelf" id="shelf"></ol>
+    <p class="empty" id="rack-empty" hidden>No vessels yet. Blow one and press “Keep on the rack”.</p>
+  </main>
+
+  <div class="error-banner" id="error-banner" role="alert" hidden>
+    <span id="error-text"></span>
+    <button type="button" class="btn secondary small" id="btn-retry">Try again</button>
+  </div>
+
+  <dialog id="data-dialog" aria-labelledby="data-title">
+    <h2 id="data-title">How your data is handled</h2>
+    <ul>
+      <li><b>Camera:</b> only on after you press “Turn on camera”, and off when you press “Turn off camera” or close the app. The camera light shows when it is on.</li>
+      <li><b>Where processing happens:</b> the Presage SmartSpectra SDK measures breathing, pulse, blinks and expressions on this computer. Video frames are never uploaded or saved.</li>
+      <li><b>Network:</b> the SDK contacts Presage only to check the API key.</li>
+      <li><b>Usage counts:</b> off by default. If you turn it on, the SDK sends Presage one anonymous summary per session (SDK version, OS, frame counts, error codes). Never video, never readings.</li>
+      <li><b>What is stored:</b> nothing, unless you press “Keep on the rack”. Then a picture of the vessel and its shape are saved in this app's folder on this computer. Delete them any time from the Cooling rack.</li>
+      <li><b>Not medical:</b> breathing and pulse are rough camera estimates used to shape art. They are not health advice.</li>
+    </ul>
+    <form method="dialog"><button class="btn primary small">Got it</button></form>
+  </dialog>
+
+  <dialog id="share-dialog" class="share" aria-labelledby="share-title">
+    <div class="share-grid">
+      <img id="share-preview" alt="Share card for this vessel">
+      <div class="share-side">
+        <h2 id="share-title">Share this vessel</h2>
+        <p class="share-lede">A picture card with the vessel's name and breath count. No video, no pulse.</p>
+        <label class="tele">
+          <input type="checkbox" id="share-pace" role="switch">
+          <span class="switch" aria-hidden="true"></span>
+          <span>Show my breathing pace on the card</span>
+        </label>
+        <div class="share-actions">
+          <button type="button" class="btn primary small" id="share-copy"><i class="ph ph-copy"></i>Copy picture</button>
+          <button type="button" class="btn secondary small" id="share-save"><i class="ph ph-download-simple"></i>Save picture</button>
+          <button type="button" class="btn secondary small" id="share-x"><i class="ph ph-x-logo"></i>Post on X</button>
+          <button type="button" class="btn secondary small" id="share-bsky"><i class="ph ph-butterfly"></i>Post on Bluesky</button>
+        </div>
+        <p class="share-status" id="share-status" aria-live="polite"></p>
+        <form method="dialog"><button class="linkish">Close</button></form>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <h2 id="confirm-title">Delete all vessels?</h2>
+    <p>This removes every vessel on the rack from this computer. It can't be undone.</p>
+    <form method="dialog" class="actions">
+      <button class="btn secondary small" value="cancel">Keep them</button>
+      <button class="btn danger small" value="ok">Delete all</button>
+    </form>
+  </dialog>
+
+  <script src="../../dist/renderer.js"></script>
+</body>
+</html>

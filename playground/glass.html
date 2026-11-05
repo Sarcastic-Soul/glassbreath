@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:">
+  <title>Glass Playground</title>
+  <link rel="stylesheet" href="glass.css">
+</head>
+<body>
+  <div id="stage"><canvas id="glass"></canvas></div>
+  <aside id="panel" aria-label="Glass controls">
+    <h1>Glass playground</h1>
+    <label class="row"><input type="checkbox" id="sim"> Simulate breathing</label>
+    <label class="row">Breaths / min <input type="range" id="bpm" min="4" max="30" step="1" value="9"><output id="bpmOut">9</output></label>
+    <label class="row">Heat <input type="range" id="heat" min="0" max="1" step="0.01" value="1"><output id="heatOut">1.00</output></label>
+    <label class="row"><input type="checkbox" id="autoBeat" checked> Auto heartbeat (68 bpm)</label>
+    <label class="row"><input type="checkbox" id="freeze"> Freeze</label>
+    <label class="row">Palette rate <input type="range" id="pRate" min="5" max="40" step="0.5" value="9"><output id="pRateOut">9</output></label>
+    <label class="row">Palette pulse <input type="range" id="pPulse" min="40" max="110" step="1" value="68"><output id="pPulseOut">68</output></label>
+    <div class="buttons">
+      <button id="beat">Heartbeat</button>
+      <button id="commit">Commit breath</button>
+      <button id="cut">Cut</button>
+      <button id="snap">Snapshot</button>
+      <button id="load">Load last recipe</button>
+      <button id="reset">Reset</button>
+    </div>
+    <p id="stats" aria-live="polite"></p>
+    <img id="shot" alt="Last snapshot" hidden>
+  </aside>
+  <script src="../dist/playground-glass.js"></script>
+</body>
+</html>

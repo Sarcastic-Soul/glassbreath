@@ -1,0 +1,35 @@
+{
+  "name": "glassbreath",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build.mjs && electron .",
+    "start:debug": "node build.mjs && GLASSBREATH_DEBUG=1 electron .",
+    "playground": "node build.mjs && GLASSBREATH_PAGE=playground electron .",
+    "smoke": "node --env-file-if-exists=.env scripts/smoke.mjs",
+    "probe": "node --env-file-if-exists=.env scripts/latency-probe.mjs",
+    "cameras": "node scripts/smoke.mjs --cameras-only",
+    "record": "node --env-file-if-exists=.env scripts/record-metrics.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fontsource/big-shoulders-display": "^5.3.0",
+    "@fontsource/big-shoulders-text": "^5.3.0",
+    "@fontsource/kalam": "^5.3.0",
+    "@phosphor-icons/web": "^2.1.2",
+    "@smartspectra/node-sdk": "^3.4.0",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "electron": "^43.8.7",
+    "esbuild": "^0.28.2"
+  },
+  "description": "Shape a glowing glass vessel with your own breathing, measured from your webcam with the Presage SmartSpectra SDK.",
+  "main": "src/main/main.cjs",
+  "license": "MIT"
+}

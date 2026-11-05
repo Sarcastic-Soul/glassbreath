@@ -1,0 +1,9 @@
+dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+node_modules/
+out/
+recordings/

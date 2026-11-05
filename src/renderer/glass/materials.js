@@ -1,7 +1,7 @@
 // Materials: the glass itself (patched MeshPhysicalMaterial), a silhouette heat glow,
 // a contact shadow and the steel blowpipe.
 import * as THREE from 'three';
-import { SNOISE, MOLTEN_RAMP } from './shaders.js';
+import { SNOISE, MOLTEN_RAMP, FINISH } from './shaders.js';
 
 /**
  * Glass that runs from molten (emissive, opaque-ish) to cooled clear coloured glass.
@@ -21,6 +21,8 @@ export function createGlassMaterial() {
     uCool: { value: 0 }, // 0 = on the pipe (no own colour yet), 1 = cut and cooled
     uTint: { value: new THREE.Color(0x58b8a8) },
     uRim: { value: new THREE.Color(0xc8f0e6) },
+    uFinishType: { value: 0 }, // 0 none, 1 gold, 2 crackle, 3 opal
+    uFinishAmt: { value: 0 }, // fades in as the glass cools
   };
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -51,10 +53,11 @@ export function createGlassMaterial() {
         '#include <common>',
         `#include <common>
 varying vec3 vGbObj;
-uniform float uHeat, uTime, uDim, uHeight, uBeat, uBeatPos, uGlassAlpha, uCool;
+uniform float uHeat, uTime, uDim, uHeight, uBeat, uBeatPos, uGlassAlpha, uCool, uFinishType, uFinishAmt;
 uniform vec3 uTint, uRim;
 ${SNOISE}
-${MOLTEN_RAMP}`,
+${MOLTEN_RAMP}
+${FINISH}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -124,13 +127,21 @@ ${MOLTEN_RAMP}`,
     behind *= (1.0 - 0.75 * clamp(uHeat, 0.0, 1.0)) * mix(0.2, 1.0, uCool);
     if (!gl_FrontFacing) totalSpecular *= mix(0.2, 1.0, uCool);
     outA = mix(outA, 1.0, max(clamp(uHeat * 1.3, 0.0, 1.0), 1.0 - uCool));
+    if (uFinishAmt > 0.001) {
+      vec3 envRefl = vec3(0.3);
+      #ifdef ENVMAP_TYPE_PMREM
+        if (uFinishType < 1.5) envRefl = textureLod(envMap, envMapRotation * reflect(-v, n), roughnessToMip(0.2)).rgb * envMapIntensity;
+      #endif
+      float fa = uFinishAmt * (gl_FrontFacing ? 1.0 : 0.55);
+      gb_finish(uFinishType, fa, vGbObj, n, v, NoV, behind, outA, envRefl);
+    }
     material.transmissionAlpha = mix(1.0, outA, material.transmission);
     totalDiffuse = mix(totalDiffuse, behind, material.transmission);
   }
 #endif`,
       );
   };
-  material.customProgramCacheKey = () => 'glassbreath-glass-v1';
+  material.customProgramCacheKey = () => 'glassbreath-glass-v2';
   return { material, uniforms };
 }
 

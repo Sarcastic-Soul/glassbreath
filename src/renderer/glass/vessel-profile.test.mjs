@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildProfile, buildControls, wallProfile, makeRecipe, parseRecipe, normalizeBreath,
+  buildProfile, buildControls, wallProfile, makeRecipe, parseRecipe, normalizeBreath, normalizeFinish,
   profileHeight, profileMaxR, PROFILE_POINTS, MAX_BANDS, LIMITS,
 } from './vessel-profile.js';
 import { paletteFor } from './palette.js';
@@ -113,6 +113,26 @@ test('recipe round-trips exactly through JSON', () => {
   for (let i = 0; i < profile.length; i++) assert.ok(Math.abs(rebuilt[i][1] - profile[i][1]) < 1e-3);
   assert.throws(() => parseRecipe({ version: 99 }));
   assert.throws(() => parseRecipe('{"version":1,"profile":[[1,"a"]]}'));
+});
+
+test('recipe finish round-trips and is optional', () => {
+  const profile = buildProfile(randomBreaths(5, 4), { finish: 1 });
+  for (const finish of ['gold', 'crackle', 'opal']) {
+    const recipe = makeRecipe({ profile, finish, createdAt: '2026-11-05T00:00:00.000Z' });
+    assert.equal(recipe.finish, finish);
+    assert.deepEqual(parseRecipe(JSON.stringify(recipe)), recipe);
+  }
+  assert.equal(makeRecipe({ profile }).finish, null);
+  // unknown or junk values become plain glass
+  for (const bad of ['platinum', 'GOLD', 3, {}, '']) {
+    assert.equal(makeRecipe({ profile, finish: bad }).finish, null);
+    assert.equal(parseRecipe({ ...makeRecipe({ profile }), finish: bad }).finish, null);
+  }
+  // a version 1 recipe saved before finishes existed still parses
+  const old = makeRecipe({ profile });
+  delete old.finish;
+  assert.equal(parseRecipe(JSON.stringify(old)).finish, null);
+  assert.equal(normalizeFinish(undefined), null);
 });
 
 test('normalizeBreath fills defaults', () => {

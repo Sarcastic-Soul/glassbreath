@@ -1,0 +1,76 @@
+# Packaging for Linux, Windows and macOS. CI builds each platform on its own
+# runner (.github/workflows/release.yml). The SmartSpectra native runtime for
+# the target platform is copied to resources/smartspectra/, where main.cjs
+# points SMARTSPECTRA_CAPI_PATH (a shared library can't load from app.asar).
+appId: dev.glassbreath.app
+productName: Glassbreath
+copyright: Copyright 2026 Anish Kumar
+directories:
+  output: out
+  buildResources: build
+files:
+  - package.json
+  - dist/**
+  - src/main/**
+  - src/renderer/index.html
+  - fixtures/**
+  # Renderer libraries are already bundled into dist/ by esbuild.
+  - "!node_modules/three{,/**}"
+  - "!node_modules/@fontsource{,/**}"
+  - "!node_modules/@phosphor-icons{,/**}"
+  # Native runtimes go in extraResources, only the one for the target.
+  - "!node_modules/@smartspectra/node-sdk-*{,/**}"
+  - "!dist/**/*.map"
+  - "!dist/playground*"
+  - "!node_modules/koffi/{src,vendor,doc}{,/**}"
+asarUnpack:
+  - "**/*.node"
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Game
+  icon: build/icon.png
+  maintainer: Anish Kumar <anishisbusy@gmail.com>
+  synopsis: Blow a glass vessel with your breathing
+  extraResources:
+    - from: node_modules/@smartspectra/node-sdk-linux-x64
+      to: smartspectra
+
+deb:
+  depends: [libgtk-3-0, libnss3, libxss1, libasound2t64 | libasound2]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  extraResources:
+    - from: node_modules/@smartspectra/node-sdk-win32-x64
+      to: smartspectra
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  category: public.app-category.games
+  icon: build/icon.png
+  # No Apple Developer ID: ad-hoc signature only. Users open it with
+  # right-click > Open the first time.
+  identity: "-"
+  hardenedRuntime: false
+  extendInfo:
+    NSCameraUsageDescription: Glassbreath reads your breathing from the camera. Video stays on this computer.
+  extraResources:
+    - from: node_modules/@smartspectra/node-sdk-darwin-arm64
+      to: smartspectra

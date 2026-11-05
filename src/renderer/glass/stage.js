@@ -3,8 +3,9 @@
 import * as THREE from 'three';
 import {
   buildProfile, wallProfile, profileHeight, profileMaxR, makeRecipe, parseRecipe,
-  normalizeBreath, PROFILE_POINTS,
+  normalizeBreath, normalizeFinish, PROFILE_POINTS,
 } from './vessel-profile.js';
+import { createParticles, KIND } from './particles.js';
 import { paletteFor } from './palette.js';
 import { createLathe, updateLathe } from './lathe.js';
 import { createStudioEnvironment } from './env.js';
@@ -27,6 +28,10 @@ const CAM = new THREE.Vector3(0, 1.9, 10);
 const TILT = 0.05; // pipe angled slightly up toward the gaffer
 const CUT_MS = 4000;
 const WALL_POINTS = PROFILE_POINTS * 2 + 2;
+const FINISH_TYPE = { gold: 1, crackle: 2, opal: 3 };
+const EMBER_RATE = 3; // per second
+const STEAM_RATE = 6; // puffs per second while the glass cools
+const STEAM_MS = [350, 3300]; // window inside the cut when steam rises
 
 export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   if (!canvas) throw new Error('createGlassStage needs a canvas');
@@ -92,6 +97,10 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   const fire = new THREE.PointLight(0xff7a2a, 0, 0, 1.6);
   pivot.add(fire);
 
+  // sparks, embers, cut glint and steam share one pool in world space
+  const particles = createParticles();
+  scene.add(particles.points);
+
   // Before the cut the glass has no colour of its own (it is molten); the palette
   // fades in only while it cools.
   const NEUTRAL = { attenuation: new THREE.Color(0xe2c7aa), tint: new THREE.Color(0x7a5a40), rim: new THREE.Color(0xf2dcc4) };
@@ -121,6 +130,10 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     heat: 1,
     tintMix: 0,
     finish: 0,
+    rare: null, // rare surface finish: null | 'gold' | 'crackle' | 'opal'
+    embers: false,
+    emberAcc: 0,
+    steamAcc: 0,
     frozen: false,
     dim: 1,
     spin: 0,
@@ -148,6 +161,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     cssH = h;
     camera.aspect = aspect;
     camera.updateProjectionMatrix();
+    particles.setScale(h * renderer.getPixelRatio(), FOV);
     viewH = 2 * CAM.length() * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     viewW = viewH * aspect;
   }
@@ -206,6 +220,94 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     return S.palette;
   }
 
+  // particles ------------------------------------------------------------------
+  const _p = new THREE.Vector3(), _n = new THREE.Vector3(), _c = new THREE.Vector3();
+  /** Random point on the outer wall (world space) between profile fractions u0..u1,
+   *  turned to the camera side, with its outward normal in _n. */
+  function surfacePoint(u0, u1) {
+    const d = S.display;
+    const i = clamp(Math.floor(lerp(u0, u1, Math.random()) * (d.length - 1)), 1, d.length - 2);
+    const a = d[i - 1], b = d[i + 1];
+    let nr = b[1] - a[1], ny = a[0] - b[0];
+    const len = Math.hypot(nr, ny) || 1;
+    nr /= len; ny /= len;
+    let th = Math.random() * Math.PI * 2;
+    for (let k = 0; k < 2; k++, th += Math.PI) {
+      const cs = Math.cos(th), sn = Math.sin(th);
+      _p.set(d[i][0] * cs, d[i][1], d[i][0] * sn).applyMatrix4(vessel.matrixWorld);
+      _n.set(nr * cs, ny, nr * sn).transformDirection(vessel.matrixWorld);
+      if (_n.dot(_c.copy(camera.position).sub(_p)) > 0) break;
+    }
+    return _p;
+  }
+
+  /** A burst of hot sparks off the glass (called on each committed breath). */
+  function sparks(strength = 0.6) {
+    if (rm || S.mode === 'cooled') return;
+    const st = clamp(Number(strength) || 0, 0, 1);
+    const n = Math.round(4 + 9 * st);
+    vessel.updateWorldMatrix(true, false);
+    for (let k = 0; k < n; k++) {
+      surfacePoint(0.12, 0.85);
+      const sp = (0.8 + 1.5 * Math.random()) * (0.7 + 0.5 * st);
+      particles.emit(KIND.spark, _p.x, _p.y, _p.z,
+        _n.x * sp + (Math.random() - 0.5) * 0.5, _n.y * sp + 0.7 + Math.random(), _n.z * sp,
+        0.45 + Math.random() * 0.4, 0.04 + 0.03 * Math.random(), 0.018, 0.8 + 0.4 * st);
+    }
+  }
+
+  /** Slow drift of embers rising from below and behind the glass (warm-up). */
+  function embers(on) {
+    S.embers = !!on;
+    S.emberAcc = 0;
+  }
+
+  function spawnEmber() {
+    const H = profileHeight(S.display), R = profileMaxR(S.display), s = S.fit.s;
+    vessel.updateWorldMatrix(true, false);
+    vessel.localToWorld(_c.set(0, H * 0.5, 0));
+    const span = Math.max(H, 2 * R) * s * 1.4;
+    particles.emit(KIND.ember,
+      _c.x + (Math.random() - 0.5) * span, _c.y - R * s * 1.1 - Math.random() * 0.5, -0.3 - Math.random() * 0.8,
+      (Math.random() - 0.5) * 0.1, 0.2 + Math.random() * 0.2, 0,
+      3.5 + Math.random() * 2, 0.022 + Math.random() * 0.02, 0.018, 0.45 + Math.random() * 0.45);
+  }
+
+  function spawnSteam() {
+    vessel.updateWorldMatrix(true, false);
+    surfacePoint(0.35, 0.97);
+    particles.emit(KIND.steam, _p.x, _p.y, _p.z,
+      _n.x * 0.08 + (Math.random() - 0.5) * 0.08, 0.2 + Math.random() * 0.18, _n.z * 0.05,
+      2.2 + Math.random(), 0.2 + Math.random() * 0.1, 1.0 + Math.random() * 0.4, 0.045 + Math.random() * 0.035);
+  }
+
+  /** Brief bright glint where the pipe parts from the glass. */
+  function glint() {
+    vessel.updateWorldMatrix(true, false);
+    vessel.localToWorld(_c.set(0, profileHeight(S.display), 0));
+    const dir = S.cut.pipeDir;
+    // just outside the mouth on the pipe side and a touch toward the camera, so the
+    // glass in front does not hide it
+    _c.addScaledVector(dir, 0.1);
+    _c.z += 0.2;
+    particles.emit(KIND.glint, _c.x, _c.y, _c.z, 0, 0, 0, 0.26, 0.34, 0.12, 1.2);
+    for (let k = 0; k < 9; k++) {
+      _n.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+      _n.addScaledVector(dir, -_n.dot(dir)).normalize();
+      const sp = 1.6 + Math.random() * 1.6;
+      particles.emit(KIND.glint, _c.x, _c.y, _c.z,
+        _n.x * sp + dir.x * 0.4, _n.y * sp + dir.y * 0.4, _n.z * sp + dir.z * 0.4,
+        0.14 + Math.random() * 0.22, 0.034, 0.01, 1.1);
+    }
+  }
+
+  /** Rare finish shown as the glass cools: null | 'gold' | 'crackle' | 'opal'. */
+  function setFinish(name) {
+    S.rare = normalizeFinish(name);
+    glass.uniforms.uFinishType.value = FINISH_TYPE[S.rare] || 0;
+    return S.rare;
+  }
+
   function freeze(on) {
     S.frozen = !!on;
     if (S.frozen) S.live.target = S.live.swell;
@@ -224,7 +326,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(pipe.quaternion).normalize();
     S.cut = { t: 0, start: performance.now(), resolve, promise, pipeStart: pipe.position.clone(), pipeDir: dir, heat0: S.heat };
     heartbeat(0.8);
+    S.steamAcc = 0;
     if (rm) finishCut();
+    else glint();
     return promise;
   }
 
@@ -307,8 +411,8 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
       snapRT = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
       snapOut = new THREE.WebGLRenderTarget(w, h, { type: THREE.UnsignedByteType, depthBuffer: false });
     }
-    const pipeWas = pipe.visible, haloWas = haloMesh.visible;
-    pipe.visible = false; haloMesh.visible = false;
+    const pipeWas = pipe.visible, haloWas = haloMesh.visible, fxWas = particles.points.visible;
+    pipe.visible = false; haloMesh.visible = false; particles.points.visible = false;
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(snapRT);
     renderer.clear();
@@ -320,7 +424,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     const px = new Uint8Array(w * h * 4);
     renderer.readRenderTargetPixels(snapOut, 0, 0, w, h, px);
     renderer.setRenderTarget(prev);
-    pipe.visible = pipeWas; haloMesh.visible = haloWas;
+    pipe.visible = pipeWas; haloMesh.visible = haloWas; particles.points.visible = fxWas;
 
     const c2 = document.createElement('canvas');
     c2.width = w; c2.height = h;
@@ -335,7 +439,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   function snapshot(opts = {}) {
     const pngDataUrl = renderSnapshot(opts.width, opts.height);
     const profile = S.finalProfile || buildProfile(S.breaths, { finish: S.finish });
-    const recipe = makeRecipe({ profile, palette: S.palette, breaths: S.breaths });
+    const recipe = makeRecipe({ profile, palette: S.palette, breaths: S.breaths, finish: S.rare });
     return { pngDataUrl, recipe };
   }
 
@@ -345,6 +449,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     S.breaths = r.breaths.slice();
     S.palette = r.palette && r.palette.attenuation ? { ...paletteFor(r.palette), ...r.palette } : paletteFor(r.palette || {});
     applyPalette(S.palette);
+    setFinish(r.finish);
+    particles.clear();
+    S.embers = false;
     S.finalProfile = r.profile;
     S.display = r.profile.map((p) => p.slice());
     S.mode = 'cooled';
@@ -364,6 +471,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     S.breaths = [];
     S.finalProfile = null;
     S.finish = 0;
+    setFinish(null);
+    particles.clear();
+    S.embers = false;
     S.pose = 0;
     S.live = { swell: 0, peak: 0, target: 0, depth: 0.5, active: false };
     S.heatTarget = hotHeat(S.furnace);
@@ -405,6 +515,10 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
       const ct = clamp(C.t / CUT_MS, 0, 1);
       S.heat = S.heatTarget = C.heat0 * Math.pow(1 - ct, 1.6);
       S.tintMix = clamp((ct - 0.15) / 0.6, 0, 1);
+      if (!rm && C.t > STEAM_MS[0] && C.t < STEAM_MS[1]) {
+        S.steamAcc += dt * STEAM_RATE;
+        while (S.steamAcc >= 1) { S.steamAcc -= 1; spawnSteam(); }
+      }
       if (t >= 1) finishCut();
     } else {
       S.heat = rm ? S.heatTarget : damp(S.heat, S.heatTarget, 2.2, dt);
@@ -487,6 +601,16 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     shadowMesh.visible = shadow.uniforms.uOpacity.value > 0.001;
     shadowMesh.position.set(pivot.position.x, pivot.position.y + 0.005, 0);
     shadowMesh.scale.set(R * S.fit.s * 3.0, R * S.fit.s * 3.0, 1);
+
+    // rare finish fades in with the palette while the glass cools
+    const tm = S.tintMix;
+    glass.uniforms.uFinishAmt.value = S.rare ? tm * tm * (3 - 2 * tm) : 0;
+
+    if (S.embers && !rm && S.mode === 'hot') {
+      S.emberAcc += dt * EMBER_RATE;
+      while (S.emberAcc >= 1) { S.emberAcc -= 1; spawnEmber(); }
+    }
+    particles.update(dt);
   }
 
   function renderFrame(dt) {
@@ -513,13 +637,16 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     if (S.cut) { const res = S.cut.resolve; S.cut = null; res?.(); }
     geometry.dispose(); cardGeo.dispose(); pipeGeo.dispose();
     glass.material.dispose(); halo.material.dispose(); disposeSnap();
-    shadow.material.dispose(); pipeMat.dispose();
+    shadow.material.dispose(); pipeMat.dispose(); particles.dispose();
     envRT.dispose();
     renderer.renderLists.dispose();
     renderer.dispose();
   }
 
-  function setReducedMotion(v) { rm = !!v; }
+  function setReducedMotion(v) {
+    rm = !!v;
+    if (rm) particles.clear(); // reduced motion: no particles at all
+  }
 
   function getStats() {
     return {
@@ -530,12 +657,14 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
       breaths: S.breaths.length,
       heat: Math.round(S.heat * 100) / 100,
       frozen: S.frozen,
+      particles: particles.count(),
+      finish: S.rare,
     };
   }
 
   return {
     setHeat, breath, commitBreath, heartbeat, setPalette, freeze, cut, snapshot, loadRecipe,
-    reset, dispose, setReducedMotion, getStats,
+    reset, dispose, setReducedMotion, getStats, sparks, embers, setFinish,
     _debug: { glass, renderer, scene, camera, halo, render: () => renderer.render(scene, camera), step: (dt = 0) => renderFrame(dt) },
   };
 }

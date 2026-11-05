@@ -1,18 +1,123 @@
 // Cooling rack: lists kept vessels from the local store, with per-item and
 // delete-all controls. Everything here lives on this computer only.
+// Above the vessels sits the shop shelf: the colour collection and the
+// achievement marks, read from store.getProgress() when the store has it.
 import { paceText } from './names.js';
+import { progress as achievementRows, familyProgress, finishName, FAMILIES } from '../game/achievements.js';
 
 const DATE_FMT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const DAY_FMT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
-export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, store, onShare }) {
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+const icon = (name) => {
+  const i = el('i', `ph ${name}`);
+  i.setAttribute('aria-hidden', 'true');
+  return i;
+};
+
+/**
+ * @param {object} o
+ * @param {HTMLElement} [o.shelfHead] optional container for the shop shelf; made and placed
+ *   just before `shelf` when left out.
+ * The shelf shows only when the store has getProgress() or setProgress() is called.
+ */
+export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, store, onShare, shelfHead }) {
   let items = [];
+  let progressState = null;
+  let hasProgress = typeof store?.getProgress === 'function';
+  let head = shelfHead ?? null;
 
   async function refresh() {
-    try { items = (await store.listVessels()) ?? []; } catch (e) { console.error('[rack] list failed', e); items = []; }
+    const [list, prog] = await Promise.all([
+      Promise.resolve().then(() => store.listVessels()).catch((e) => { console.error('[rack] list failed', e); return []; }),
+      hasProgress
+        ? Promise.resolve().then(() => store.getProgress()).catch((e) => { console.error('[rack] progress failed', e); return null; })
+        : null,
+    ]);
+    items = list ?? [];
+    if (hasProgress) progressState = prog;
     render();
   }
 
+  /** Show a new progress state right away (for example after evaluate()). */
+  function setProgress(state) {
+    hasProgress = true;
+    progressState = state ?? null;
+    renderHead();
+  }
+
+  function renderHead() {
+    if (!hasProgress) { if (head) head.hidden = true; return; }
+    if (!head) {
+      head = el('section', 'shop-shelf');
+      shelf.before(head);
+    }
+    head.classList.add('shop-shelf');
+    head.setAttribute('aria-label', 'Your collection');
+    head.hidden = false;
+    head.replaceChildren(colourBlock(), marksBlock());
+  }
+
+  function colourBlock() {
+    const fams = familyProgress(progressState);
+    const seen = fams.filter((f) => f.seen).length;
+    const box = el('div', 'shop-colours');
+    const label = el('p', 'shop-kicker', 'Colours found');
+    const list = el('ul', 'swatches');
+    list.setAttribute('aria-label', `Colour collection, ${seen} of ${FAMILIES.length} found`);
+    for (const f of fams) {
+      const li = el('li', f.seen ? 'swatch seen' : 'swatch');
+      const text = `${f.name}${f.seen ? '' : ' (not found yet)'}`;
+      li.title = text;
+      li.setAttribute('role', 'img');
+      li.setAttribute('aria-label', text);
+      if (f.seen) li.style.setProperty('--swatch', f.color);
+      list.append(li);
+    }
+    const count = el('p', 'shop-count');
+    count.append(el('b', null, String(seen)), ` of ${FAMILIES.length} colours`);
+    box.append(label, list, count);
+    return box;
+  }
+
+  function marksBlock() {
+    const rows = achievementRows(progressState);
+    const earned = rows.filter((r) => r.done).length;
+    const box = el('div', 'shop-marks');
+    const top = el('p', 'shop-kicker');
+    top.append('Marks of the shop ', el('span', 'shop-tally', `${earned} of ${rows.length}`));
+    const list = el('ul', 'badges');
+    list.setAttribute('aria-label', 'Achievements');
+    for (const r of rows) {
+      const li = el('li', r.done ? 'badge earned' : 'badge');
+      li.tabIndex = 0;
+      li.setAttribute('role', 'img');
+      const status = r.done
+        ? (r.doneAt > 1 ? `earned ${DAY_FMT.format(new Date(r.doneAt))}` : 'earned')
+        : (r.progressText ? `not yet, ${r.progressText}` : 'not yet');
+      li.setAttribute('aria-label', `${r.title}, ${status}. ${r.description}`);
+      const tip = el('span', 'tip', r.description);
+      tip.setAttribute('aria-hidden', 'true');
+      if (r.progressText && !r.done) tip.append(el('span', 'tip-more', r.progressText));
+      if (r.done && r.doneAt > 1) tip.append(el('span', 'tip-more', `Earned ${DAY_FMT.format(new Date(r.doneAt))}`));
+      li.append(icon(r.icon), el('span', 'badge-title', r.title), tip);
+      // Flip the tooltip to the left when it would run off the right edge.
+      const place = () => li.classList.toggle('tip-flip', li.getBoundingClientRect().left + 280 > document.documentElement.clientWidth - 16);
+      li.addEventListener('pointerenter', place);
+      li.addEventListener('focus', place);
+      list.append(li);
+    }
+    box.append(top, list);
+    return box;
+  }
+
   function render() {
+    renderHead();
     shelf.replaceChildren();
     empty.hidden = items.length > 0;
     deleteAllBtn.hidden = items.length === 0;
@@ -31,6 +136,13 @@ export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, sto
       plate.append(img);
       const h3 = document.createElement('h3');
       h3.textContent = `No. ${number} ${meta.name ?? ''}`.trim();
+      const finish = finishName(item.recipe);
+      if (finish) {
+        const tag = el('span', 'finish-tag');
+        tag.append(icon('ph-sparkle'), finish);
+        tag.setAttribute('aria-label', `Rare finish: ${finish}`);
+        plate.append(tag);
+      }
       const p = document.createElement('p');
       const when = item.createdAt ? DATE_FMT.format(new Date(item.createdAt)) : '';
       const breaths = Number(meta.breaths) || item.recipe?.breaths?.length || 0;
@@ -83,5 +195,5 @@ export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, sto
     refresh();
   });
 
-  return { refresh };
+  return { refresh, setProgress };
 }

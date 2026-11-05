@@ -3,6 +3,7 @@
 //   bindSmartSpectraIpc and to us through a few validated IPC handlers.
 // - Camera permission: video only, only for our own file:// pages.
 // - Gallery: userData/vessels/<id>/{vessel.png, recipe.json}.
+// - Achievements: userData/progress.json (kept when the gallery is deleted).
 
 'use strict';
 
@@ -10,7 +11,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const crypto = require('node:crypto');
-const { app, BrowserWindow, session, ipcMain, clipboard, nativeImage, dialog, shell } = require('electron');
+const { app, BrowserWindow, session, ipcMain, clipboard, nativeImage, dialog, shell, safeStorage } = require('electron');
 
 const APP_ROOT = path.join(__dirname, '..', '..');
 
@@ -46,8 +47,30 @@ const MAX_PNG_CHARS = 12 * 1024 * 1024; // ~9 MB of PNG
 const MAX_RECIPE_BYTES = 1024 * 1024;
 const MAX_FIXTURE_BYTES = 50 * 1024 * 1024;
 const MAX_LIST = 500;
+const MAX_PROGRESS_BYTES = 64 * 1024;
 
 const vesselsDir = () => path.join(app.getPath('userData'), 'vessels');
+const progressFile = () => path.join(app.getPath('userData'), 'progress.json');
+
+function isPlainObject(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+// Write to a temp file in the same folder, then rename over the target,
+// so a crash mid-write never leaves a half-written file.
+async function writeFileAtomic(file, data) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    await fs.writeFile(tmp, data);
+    await fs.rename(tmp, file);
+  } catch (e) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
+}
 
 function assertId(id) {
   if (typeof id !== 'string' || !ID_RE.test(id)) throw new Error('Invalid vessel id');
@@ -85,15 +108,56 @@ const SHARE_URLS = {
   bluesky: (text) => `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,
 };
 
+// ---------- API key typed in the app ----------
+// Packaged builds have no .env, so the user pastes their own Presage key once.
+// It is encrypted with the OS keychain when Electron's safeStorage has one.
+const keyFile = () => path.join(app.getPath('userData'), 'presage-key.bin');
+const KEY_RE = /^[A-Za-z0-9._~+/=-]{8,256}$/;
+
+async function readSavedKey() {
+  let buf;
+  try { buf = await fs.readFile(keyFile()); } catch { return ''; }
+  try {
+    if (buf[0] === 0x45) return safeStorage.decryptString(buf.subarray(1)); // 'E' + encrypted
+    if (buf[0] === 0x50) return buf.subarray(1).toString('utf8'); // 'P' + plain (no keychain)
+  } catch (e) { console.warn('[glassbreath] saved key unreadable:', e.message); }
+  return '';
+}
+
+async function writeSavedKey(key) {
+  const enc = safeStorage.isEncryptionAvailable();
+  const body = enc ? safeStorage.encryptString(key) : Buffer.from(key, 'utf8');
+  const tmp = `${keyFile()}.tmp`;
+  await fs.mkdir(path.dirname(keyFile()), { recursive: true });
+  await fs.writeFile(tmp, Buffer.concat([Buffer.from(enc ? 'E' : 'P'), body]), { mode: 0o600 });
+  await fs.rename(tmp, keyFile());
+  return enc;
+}
+
 // ---------- IPC ----------
 function registerIpc() {
-  handle('glassbreath:getConfig', () => ({
-    apiKey: process.env.SMARTSPECTRA_API_KEY || '',
+  handle('glassbreath:getConfig', async () => ({
+    apiKey: process.env.SMARTSPECTRA_API_KEY || (await readSavedKey()),
+    keySaved: !process.env.SMARTSPECTRA_API_KEY && !!(await readSavedKey()),
+    // Optional for demo recordings: GLASSBREATH_FINISH=gold|crackle|opal forces a rare finish.
+    forceFinish: ['gold', 'crackle', 'opal'].includes(process.env.GLASSBREATH_FINISH) ? process.env.GLASSBREATH_FINISH : null,
     enableTelemetry: process.env.GLASSBREATH_TELEMETRY === '1',
     // Optional: GLASSBREATH_REPLAY=synthetic-session.jsonl starts in replay mode.
     replay: FIXTURE_RE.test(process.env.GLASSBREATH_REPLAY || '') ? process.env.GLASSBREATH_REPLAY : null,
     debug: DEBUG,
   }));
+
+  handle('glassbreath:setApiKey', async (key) => {
+    const k = String(key ?? '').trim();
+    if (!KEY_RE.test(k)) throw new Error('That does not look like a Presage API key.');
+    const encrypted = await writeSavedKey(k);
+    return { ok: true, encrypted };
+  });
+
+  handle('glassbreath:clearApiKey', async () => {
+    await fs.rm(keyFile(), { force: true });
+    return true;
+  });
 
   handle('glassbreath:readFixture', async (name) => {
     if (typeof name !== 'string' || !FIXTURE_RE.test(name)) throw new Error('Invalid fixture name');
@@ -175,6 +239,29 @@ function registerIpc() {
     return true;
   });
 
+  // Achievement progress: one small JSON object. Not touched by deleteAll.
+  handle('glassbreath:getProgress', async () => {
+    try {
+      const st = await fs.stat(progressFile());
+      if (!st.isFile() || st.size > MAX_PROGRESS_BYTES) return null;
+      const parsed = JSON.parse(await fs.readFile(progressFile(), 'utf8'));
+      return isPlainObject(parsed) ? parsed : null;
+    } catch { return null; }
+  });
+
+  handle('glassbreath:saveProgress', async (state) => {
+    if (!isPlainObject(state)) throw new Error('Invalid progress');
+    const json = JSON.stringify(state);
+    if (Buffer.byteLength(json) > MAX_PROGRESS_BYTES) throw new Error('Progress too large');
+    await writeFileAtomic(progressFile(), json);
+    return true;
+  });
+
+  handle('glassbreath:resetProgress', async () => {
+    await fs.rm(progressFile(), { force: true });
+    return true;
+  });
+
   handle('glassbreath:deleteAll', async () => {
     let names;
     try { names = await fs.readdir(vesselsDir()); } catch { return 0; }
@@ -195,6 +282,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: 'Glassbreath',
+    autoHideMenuBar: true,
     backgroundColor: '#15110e',
     show: false,
     webPreferences: {

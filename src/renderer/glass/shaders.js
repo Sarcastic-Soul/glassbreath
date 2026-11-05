@@ -57,3 +57,58 @@ vec3 gb_molten(float t){
   return c;
 }
 `;
+
+// Rare finishes (gold leaf, crackle, opal). Needs SNOISE. Called from the glass
+// transmission step with the object-space point p, world normal n, view dir v and
+// NoV. It edits the transmitted colour and alpha in place. amt fades the finish in
+// as the glass cools; type is 1 gold, 2 crackle, 3 opal.
+export const FINISH = /* glsl */ `
+vec3 gb_hash3(vec3 p){
+  p=vec3(dot(p,vec3(127.1,311.7,74.7)),dot(p,vec3(269.5,183.3,246.1)),dot(p,vec3(113.5,271.9,124.6)));
+  return fract(sin(p)*43758.5453);
+}
+// Voronoi: distance between the two nearest cell points (0 on a cell edge).
+float gb_cellEdge(vec3 p){
+  vec3 i=floor(p),f=fract(p);
+  float d1=8.0,d2=8.0;
+  for(int z=-1;z<=1;z++)for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec3 g=vec3(float(x),float(y),float(z));
+    vec3 r=g+gb_hash3(i+g)-f;
+    float d=dot(r,r);
+    if(d<d1){d2=d1;d1=d;}else if(d<d2){d2=d;}
+  }
+  return sqrt(d2)-sqrt(d1);
+}
+void gb_finish(float type,float amt,vec3 p,vec3 n,vec3 v,float NoV,inout vec3 col,inout float alpha,vec3 envRefl){
+  if(type<1.5){
+    // gold leaf: small torn flecks in loose clusters, each catching light at its own angle
+    float cluster=gb_snoise(p*0.9+vec3(3.1,7.7,1.3));
+    float fl=0.7*gb_snoise(p*8.0)+0.3*gb_snoise(p*21.0);
+    float m=smoothstep(0.6,0.66,fl+0.35*cluster)*amt;
+    float h=gb_hash3(floor(p*8.0)).x;
+    float tw=pow(0.5+0.5*sin(h*60.0+dot(v,vec3(11.0,7.0,5.0))),10.0);
+    float lum=dot(envRefl,vec3(0.3,0.5,0.2));
+    vec3 gold=vec3(1.0,0.7,0.28)*(0.22+1.3*lum)+vec3(1.0,0.85,0.5)*tw*1.4;
+    col=mix(col,gold,m);
+    alpha=mix(alpha,0.95,m);
+  }else if(type<2.5){
+    // crackle glaze: a fine network of lighter lines, warped so it reads hand-made
+    vec3 q=p*8.0+0.3*vec3(gb_snoise(p*1.7),gb_snoise(p*1.7+5.2),0.0);
+    float e=gb_cellEdge(q);
+    float w=fwidth(e);
+    float vary=0.3+0.7*smoothstep(-0.5,0.5,gb_snoise(p*0.8+2.0)); // some cracks fainter than others
+    float line=(1.0-smoothstep(0.0,w*0.9+0.006,e))*amt*vary;
+    col+=vec3(0.78,0.84,0.86)*line*0.34;
+    alpha=mix(alpha,max(alpha,0.4),line);
+  }else{
+    // opal: milky body with a soft hue shift that follows the view angle
+    float f=1.0-NoV;
+    float hue=f*1.1+0.12*gb_snoise(p*1.4)+0.55;
+    vec3 irid=0.5+0.5*cos(6.2831*(hue+vec3(0.0,0.33,0.67)));
+    vec3 milk=vec3(0.82,0.84,0.88);
+    float k=(0.14+0.46*pow(f,1.3))*amt;
+    col=mix(col,milk*0.4+irid*(0.12+0.22*f),k);
+    alpha=mix(alpha,max(alpha,0.5),k*0.7);
+  }
+}
+`;

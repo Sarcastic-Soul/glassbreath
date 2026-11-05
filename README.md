@@ -6,7 +6,23 @@ Glassbreath is a desktop app (Electron) that watches your chest rise and fall th
 
 Press "Share" to make a picture card of your vessel (name, breath count, and your breathing pace only if you switch it on). You can copy it, save it, or open a post on X or Bluesky with the picture ready to paste.
 
+Along the way there are sounds made in code (furnace roar, a glass tink for each band, a chime when you cut, cooling crackle), sparks and steam, about one vessel in eight cooling with a rare finish (gold fleck, crackle or opal), and calm achievements such as "Slow breather" or collecting all six glass colours. None of them reward breathing faster.
+
 It is a toy and a slow-breathing exercise, not a health tool. The numbers on screen are rough camera estimates.
+
+## Download
+
+Get the latest build from the [Releases page](https://github.com/Sarcastic-Soul/glassbreath/releases):
+
+| System | File | Notes |
+|---|---|---|
+| Linux (x64) | `.deb` or `.AppImage` | The `.deb` is the safest choice (`sudo apt install ./Glassbreath-*.deb`). |
+| Windows 10/11 (x64) | `.exe` installer | The build is not code-signed, so SmartScreen may warn: press "More info", then "Run anyway". |
+| macOS (Apple Silicon) | `.dmg` | Not notarized. The first time, right-click the app and choose Open. If macOS says it is damaged, run `xattr -cr /Applications/Glassbreath.app`. Intel Macs are not supported by the SDK. |
+
+On first use, press "Turn on camera" and paste your Presage API key (free at <https://physiology.presagetech.com/>). It is saved on your computer only, encrypted with your system keychain where one is available. "Use the sample recording" works without a key.
+
+Builds are made by GitHub Actions (`.github/workflows/release.yml`) on every push; pushing a tag like `v0.2.0` publishes a release.
 
 ## How the SDK is used
 
@@ -57,6 +73,7 @@ You need to do this again after reinstalling Electron. Please don't run the app 
 | `npm test` | Unit tests for the signal processing and vessel shape. |
 | `npm run cameras` | List the cameras the SDK can see. |
 | `npm run probe` | Measure how often and how late each metric arrives. |
+| `npm run dist` | Package installers for this system into `out/` (electron-builder). |
 | `npm run record -- fixtures/my-session.jsonl` | Record a real session (metrics only, no video) for replay. Set `RECORD_SECONDS` to change the length (default 90). |
 
 ### No camera? Use the sample recording
@@ -69,6 +86,8 @@ The consent screen has a "Use the sample recording" button. It plays back a reco
 - **On this computer.** The SmartSpectra SDK processes video frames locally. Frames are never uploaded or saved.
 - **Network.** The SDK contacts Presage to check the API key.
 - **Usage counts are off by default.** The consent screen has a switch for the SDK's anonymous telemetry (one summary per session: SDK version, OS, frame counts, error codes; never video or readings). It stays off unless you turn it on.
+- **Your API key.** If you paste it in the app, it is stored in the app's user data folder, encrypted with the system keychain when available.
+- **Achievements.** A small progress file (which achievements and colours you have) is saved locally. Deleting vessels does not reset it.
 - **What is stored.** Nothing, unless you press "Keep on the rack". Then a PNG of the vessel and its shape (band widths, colour, breath count, rounded breathing pace) are saved in the app's user data folder. Pulse is not stored. Delete one vessel or all of them from the rack.
 - **Sharing is manual.** Nothing is posted for you. "Share" builds a picture card on this computer. Copy, save and post only happen when you press those buttons, and posting just opens the site in your browser with suggested text. Breathing pace is left off the card unless you turn it on; pulse is never on it.
 - **Not medical.** Breathing and pulse are estimates used to shape art. Glassbreath does not diagnose, treat or advise on anything.

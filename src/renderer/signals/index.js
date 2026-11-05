@@ -20,6 +20,44 @@ export { smileScore } from './face.js';
 const STATUS_NAMES = Object.fromEntries(Object.entries(ProcessingStatus).map(([k, v]) => [v, k.replace(/^k/, '')]));
 const INVALID_STATE = SmartSpectraErrorCode?.kInvalidState ?? 1;
 
+// The SDK wants about 30 fps. Many laptop webcams offer 1280x720 at 30 fps only in
+// MJPEG and fall back to 10 fps raw, which the SDK rejects ("at least 25 frames per
+// second"). Asking for a minimum frame rate makes the browser pick a fast mode.
+// The SDK copies every frame on the renderer thread (drawImage + getImageData +
+// IPC). At 1280x720 that cannot keep 25+ fps on an average laptop, and below
+// 25 fps the SDK marks every frame invalid. 640x360, scaled by Chrome from the
+// camera's native mode, is 4x less work and still shows the chest clearly.
+const CAMERA_TRIES = [
+  { width: { ideal: 640 }, height: { ideal: 360 }, resizeMode: 'crop-and-scale', frameRate: { min: 25, ideal: 30 }, facingMode: 'user' },
+  { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { min: 25, ideal: 30 }, facingMode: 'user' },
+  { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 30 }, facingMode: 'user' },
+];
+
+// Once processing runs, the SDK locks exposure with applyConstraints({ advanced }).
+// That call replaces every constraint, so the track jumps back to the camera's
+// native 1280x720. Merge our size and frame rate back into any later call.
+function keepSize(stream, base) {
+  const track = stream.getVideoTracks()[0];
+  if (track && typeof track.applyConstraints === 'function') {
+    const apply = track.applyConstraints.bind(track);
+    track.applyConstraints = (c = {}) => apply({ ...base, ...c });
+  }
+  return stream;
+}
+
+async function openCamera() {
+  let lastErr;
+  for (const video of CAMERA_TRIES) {
+    try { return keepSize(await navigator.mediaDevices.getUserMedia({ video, audio: false }), video); }
+    catch (e) {
+      lastErr = e;
+      // Only a constraint mismatch is worth another try; denial or busy camera is final.
+      if (e?.name !== 'OverconstrainedError' && e?.name !== 'ConstraintNotSatisfiedError') break;
+    }
+  }
+  throw lastErr;
+}
+
 export function createSignals({ apiKey, enableTelemetry = false, source = 'camera', replayLoop = false } = {}) {
   const em = createEmitter();
   const emit = (name, payload) => em.emit(name, payload);
@@ -29,6 +67,12 @@ export function createSignals({ apiKey, enableTelemetry = false, source = 'camer
   let replay = null;
   let stopping = false;
   let destroyed = false;
+  let stream = null;
+
+  function releaseCamera() {
+    for (const t of stream?.getTracks?.() ?? []) { try { t.stop(); } catch { /* already stopped */ } }
+    stream = null;
+  }
 
   function status(name) { emit('status', { name, replay: !!isReplay }); }
 
@@ -87,8 +131,17 @@ export function createSignals({ apiKey, enableTelemetry = false, source = 'camer
       if (!apiKey) { fail('NO_API_KEY', 'No SmartSpectra API key. Set SMARTSPECTRA_API_KEY or app/.env.', false); return; }
       try {
         if (!sdk) buildSdk();
+        if (!stream || stream.getVideoTracks().every((t) => t.readyState === 'ended')) {
+          stream = await openCamera();
+          sdk.useMediaStream(stream);
+          emit('stream', stream);
+        }
         await sdk.start();
       } catch (e) {
+        if (e?.name === 'NotAllowedError' || e?.name === 'NotReadableError' || e?.name === 'NotFoundError') {
+          fail('CAMERA_FAILED', `${e.name}: ${e.message}`, true);
+          return;
+        }
         fail(e?.code ?? 'START_FAILED', e?.message || e, e?.retryable ?? true);
       }
     },
@@ -99,6 +152,7 @@ export function createSignals({ apiKey, enableTelemetry = false, source = 'camer
       if (!sdk) return;
       try { await sdk.stop(); }
       catch (e) { if (e?.code !== INVALID_STATE) fail(e?.code ?? 'STOP_FAILED', e?.message || e, true); }
+      finally { releaseCamera(); }
     },
 
     destroy() {
@@ -109,6 +163,7 @@ export function createSignals({ apiKey, enableTelemetry = false, source = 'camer
       processor.dispose();
       try { sdk?.destroy(); } catch { /* already gone */ }
       sdk = null;
+      releaseCamera();
       em.clear();
     },
   };

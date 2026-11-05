@@ -15,7 +15,9 @@
     "probe": "node --env-file-if-exists=.env scripts/latency-probe.mjs",
     "cameras": "node scripts/smoke.mjs --cameras-only",
     "record": "node --env-file-if-exists=.env scripts/record-metrics.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "dist": "node build.mjs && electron-builder --publish never",
+    "dist:dir": "node build.mjs && electron-builder --dir --publish never"
   },
   "dependencies": {
     "@fontsource/big-shoulders-display": "^5.3.0",
@@ -27,9 +29,15 @@
   },
   "devDependencies": {
     "electron": "^43.8.7",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2"
   },
   "description": "Shape a glowing glass vessel with your own breathing, measured from your webcam with the Presage SmartSpectra SDK.",
   "main": "src/main/main.cjs",
-  "license": "MIT"
+  "license": "MIT",
+  "author": {
+    "name": "Anish Kumar",
+    "email": "anishisbusy@gmail.com"
+  },
+  "homepage": "https://github.com/Sarcastic-Soul/glassbreath"
 }

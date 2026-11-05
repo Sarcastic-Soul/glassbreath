@@ -2,6 +2,7 @@
 // plus a dialog to copy it, save it, or start a post. Nothing leaves the computer
 // until the user presses one of those buttons.
 import { paceText } from './names.js';
+import { finishName } from '../game/achievements.js';
 
 const W = 1080;
 const H = 1350;
@@ -83,6 +84,7 @@ export async function makeShareCard(v) {
 
   const parts = [`${v.breaths} breath${v.breaths === 1 ? '' : 's'}`];
   if (v.showPace && Number.isFinite(v.breathRate)) parts.push(paceText(v.breathRate));
+  if (v.finish) parts.push(`rare ${finishName(v.finish).toLowerCase()} finish`);
   g.fillStyle = COLORS.soft;
   g.font = '500 40px "Big Shoulders Text"';
   g.fillText(parts.join(', '), 72, 1172);

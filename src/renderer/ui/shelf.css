@@ -1,0 +1,85 @@
+/* Shop shelf on the cooling rack: colour collection + achievement marks.
+   Uses the hot shop tokens from styles.css. */
+
+.shop-shelf {
+  margin: 40px 32px 0;
+  padding: 22px 26px 24px;
+  background: var(--ground-2);
+  border-left: 4px solid var(--molten);
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  gap: 20px 36px;
+  align-items: start;
+}
+.shop-shelf + .shelf { margin-top: 44px; }
+
+.shop-kicker {
+  font-family: var(--hand); font-size: 21px; line-height: 1.2; color: var(--chalk);
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.shop-tally { font-family: var(--text); font-size: 16px; font-weight: 500; color: var(--ink-soft); }
+
+/* colour collection */
+.swatches { list-style: none; display: flex; gap: 10px; margin-top: 12px; }
+.swatch {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px dashed var(--line);
+  background: transparent;
+}
+.swatch.seen {
+  border: 2px solid rgba(239, 229, 214, 0.28);
+  background: var(--swatch, var(--ink-soft));
+}
+.shop-count { margin-top: 10px; font-size: 17px; color: var(--ink-soft); }
+.shop-count b { font-family: var(--display); font-weight: 800; font-size: 26px; color: var(--ink); margin-right: 2px; }
+
+/* achievement marks */
+.badges { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.badge {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 40px; padding: 0 14px 0 11px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 16px; font-weight: 500; line-height: 1;
+  cursor: default;
+  opacity: 0.55;
+  transition: opacity 160ms ease-out, border-color 160ms ease-out;
+}
+.badge .ph { font-size: 19px; vertical-align: 0; }
+.badge:hover, .badge:focus-visible { opacity: 0.9; }
+.badge:focus-visible { outline: 2px solid var(--chalk); outline-offset: 2px; }
+.badge.earned { opacity: 1; color: var(--ink); border-color: var(--molten); background: rgba(255, 123, 28, 0.1); }
+.badge.earned .ph { color: var(--molten); }
+.badge-title { white-space: nowrap; }
+
+.badge .tip {
+  position: absolute; z-index: 5; left: 0; top: calc(100% + 8px);
+  width: max-content; max-width: 260px;
+  padding: 10px 12px;
+  background: var(--ground-3); color: var(--ink);
+  border-left: 3px solid var(--molten);
+  font-size: 15px; font-weight: 400; line-height: 1.35; white-space: normal;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.badge.tip-flip .tip { left: auto; right: 0; }
+.badge:not(.earned) .tip { border-left-color: var(--ink-soft); }
+.badge:hover .tip, .badge:focus-visible .tip { opacity: 1; visibility: visible; }
+.tip-more { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 14px; }
+
+/* rare finish tag on a rack card */
+.shelf .plate .finish-tag {
+  position: absolute; top: 10px; left: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px;
+  background: var(--ground-3); color: var(--chalk);
+  border: 1px solid var(--molten);
+  font-size: 14px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; line-height: 1.2;
+}
+.shelf .plate .finish-tag .ph { color: var(--molten); font-size: 15px; vertical-align: 0; }
+
+@media (max-width: 1180px) {
+  .shop-shelf { grid-template-columns: 1fr; gap: 18px; }
+}

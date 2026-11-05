@@ -18,9 +18,14 @@
     <label class="row"><input type="checkbox" id="freeze"> Freeze</label>
     <label class="row">Palette rate <input type="range" id="pRate" min="5" max="40" step="0.5" value="9"><output id="pRateOut">9</output></label>
     <label class="row">Palette pulse <input type="range" id="pPulse" min="40" max="110" step="1" value="68"><output id="pPulseOut">68</output></label>
+    <label class="row"><input type="checkbox" id="embers"> Embers (warm-up)</label>
+    <label class="row"><input type="checkbox" id="autoSparks" checked> Sparks on commit</label>
+    <label class="row">Spark strength <input type="range" id="sparkK" min="0" max="1" step="0.05" value="0.7"><output id="sparkKOut">0.7</output></label>
+    <label class="row">Finish <select id="finish"><option value="">plain</option><option value="gold">gold</option><option value="crackle">crackle</option><option value="opal">opal</option></select></label>
     <div class="buttons">
       <button id="beat">Heartbeat</button>
       <button id="commit">Commit breath</button>
+      <button id="sparks">Sparks</button>
       <button id="cut">Cut</button>
       <button id="snap">Snapshot</button>
       <button id="load">Load last recipe</button>

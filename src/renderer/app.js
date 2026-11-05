@@ -8,11 +8,14 @@ import { createTrace } from './ui/trace.js';
 import { createRack } from './ui/rack.js';
 import { vesselName, paceText } from './ui/names.js';
 import { createShareDialog } from './ui/share.js';
+import { createSound } from './audio/sound.js';
+import { evaluate, ACHIEVEMENTS, finishName } from './game/achievements.js';
 
 const TARGET_BREATHS = 10;
 const MIN_BREATHS_TO_CUT = 3;
 const WARMUP_MS = 30_000;
-const SMILE_THRESHOLD = 0.55;
+const SMILE_THRESHOLD = 0.4; // a normal smile scores about 0.4 to 0.6
+const SMILE_GRACE_MS = 300; // short dips below the threshold do not reset the hold
 const SMILE_HOLD_MS = 700;
 const SAMPLE_RECORDING = '../../fixtures/sample-session.jsonl';
 const SYNTHETIC_RECORDING = '../../fixtures/synthetic-session.jsonl';
@@ -26,7 +29,8 @@ const els = {
   dataBtn: $('btn-data'), dataDialog: $('data-dialog'), consentError: $('consent-error'),
   glassCanvas: $('glass'), traceCanvas: $('trace'), preview: $('preview'), camTag: $('cam-tag'), hint: $('hint'),
   countMain: $('count-main'), countSub: $('count-sub'), heat: $('heat'), heatFill: $('heat-fill'), heatText: $('heat-text'),
-  cutHint: $('cut-hint'), smileFill: $('smile-fill'), read: document.querySelector('#stage .read'), readRate: $('read-rate'), readPulse: $('read-pulse'),
+  cutHint: $('cut-hint'), orb: $('orb'), soundBtn: $('btn-sound'),
+  keyForm: $('key-form'), keyInput: $('key-input'), doneFinish: $('done-finish'), doneAwards: $('done-awards'), smileFill: $('smile-fill'), read: document.querySelector('#stage .read'), readRate: $('read-rate'), readPulse: $('read-pulse'),
   done: $('done'), doneName: $('done-name'), doneMeta: $('done-meta'), keepBtn: $('btn-keep'), againBtn: $('btn-again'), shareBtn: $('btn-share'),
   errorBanner: $('error-banner'), errorText: $('error-text'), retryBtn: $('btn-retry'),
 };
@@ -60,7 +64,7 @@ const session = {
   pulses: [],
   rate: null,
   pulse: null,
-  smileSince: 0,
+  smileSince: 0, smileLast: 0, smilePeak: 0,
   hint: '',
   breathPhase: 'hold',
   palette: null,
@@ -107,8 +111,8 @@ async function pickRecording() {
 async function begin(kind) {
   els.consentError.hidden = true;
   if (kind === 'camera' && !config.apiKey) {
-    els.consentError.textContent = 'No Presage API key found. Add SMARTSPECTRA_API_KEY to app/.env (see README), then restart. You can still try the sample recording.';
-    els.consentError.hidden = false;
+    els.keyForm.hidden = false;
+    els.keyInput.focus();
     return;
   }
   source = kind;
@@ -131,6 +135,8 @@ async function begin(kind) {
     : '<i class="ph ph-stop"></i>Stop recording';
   resetSession();
   session.phase = 'warming';
+  sound.furnace(true);
+  glass.embers(true);
   show('stage');
   render();
   await signals.start();
@@ -145,6 +151,7 @@ async function end() {
   }
   els.preview.srcObject = null;
   els.sourceBadge.hidden = true;
+  sound.stopAll();
   session.phase = 'off';
   glass.reset();
   trace.clear();
@@ -170,12 +177,17 @@ function wireSignals(s) {
   s.on('breath', (b) => {
     trace.push(b.t, b.chest);
     if (canShape()) glass.breath(b);
+    const live = session.phase === 'warming' || session.phase === 'blowing';
+    sound.breathe(live && canShape() ? Math.max(0, Math.min(1, b.chest ?? 0)) : 0);
     const ph = b.phase === 'inhale' || b.phase === 'exhale' ? b.phase : 'hold';
     if (ph !== session.breathPhase) { session.breathPhase = ph; if (session.phase === 'blowing') render(); }
   });
   s.on('breathComplete', (c) => {
     if (session.phase !== 'blowing' || !canShape()) return;
     glass.commitBreath(c);
+    const depth = Number.isFinite(c?.depth) ? c.depth : 0.5;
+    sound.bandSet(depth);
+    glass.sparks(0.35 + 0.65 * depth);
     session.breaths += 1;
     render();
     flashCount();
@@ -199,8 +211,8 @@ function wireSignals(s) {
     if (name === 'ReplayEnded' && session.phase === 'blowing' && session.breaths >= MIN_BREATHS_TO_CUT) cutGlass();
   });
   s.on('error', (e) => {
-    console.error('[glassbreath] signal error', e);
-    showError(friendlyError(e), e.retryable);
+    console.error('[glassbreath] signal error', JSON.stringify(e));
+    showError(friendlyError(e), e.retryable || e?.code === 1);
   });
 }
 
@@ -228,22 +240,73 @@ function applyFreeze() {
 function onSmile(score) {
   const eligible = session.phase === 'blowing' && session.breaths >= MIN_BREATHS_TO_CUT;
   const now = performance.now();
+  if (eligible && Number.isFinite(score) && score > session.smilePeak) {
+    session.smilePeak = score;
+    console.log('[glassbreath] smile peak', score.toFixed(2));
+  }
   if (!eligible || !(score >= SMILE_THRESHOLD)) {
+    // Keep the hold through a short dip; reset after the grace period.
+    if (eligible && session.smileSince && now - session.smileLast < SMILE_GRACE_MS) return;
     session.smileSince = 0;
     els.smileFill.style.width = eligible ? `${Math.round(Math.max(0, Math.min(1, score / SMILE_THRESHOLD)) * 60)}%` : '0%';
     return;
   }
+  session.smileLast = now;
   if (!session.smileSince) session.smileSince = now;
   const held = (now - session.smileSince) / SMILE_HOLD_MS;
   els.smileFill.style.width = `${Math.round(60 + Math.min(1, held) * 40)}%`;
   if (held >= 1) cutGlass();
 }
 
+// ---------- API key (packaged builds have no .env) ----------
+els.keyForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const key = els.keyInput.value.trim();
+  els.consentError.hidden = true;
+  try {
+    await bridge.setApiKey(key);
+    config.apiKey = key;
+    els.keyInput.value = '';
+    els.keyForm.hidden = true;
+    begin('camera');
+  } catch (err) {
+    els.consentError.textContent = String(err?.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    els.consentError.hidden = false;
+  }
+});
+
+// ---------- rare finishes ----------
+// About 1 vessel in 8 cools with a rare finish.
+const FINISH_ODDS = [['gold', 0.05], ['crackle', 0.05], ['opal', 0.025]];
+function rollFinish(rand = Math.random()) {
+  if (config.forceFinish) return config.forceFinish;
+  let acc = 0;
+  for (const [name, p] of FINISH_ODDS) { acc += p; if (rand < acc) return name; }
+  return null;
+}
+
+// ---------- sound ----------
+// Synthesized in code. Browsers only allow audio after a click or key press.
+const sound = createSound();
+const SOUND_KEY = 'glassbreath.sound';
+function readSoundPref() { try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch { return true; } }
+function setSoundOn(on) {
+  sound.setEnabled(on);
+  try { localStorage.setItem(SOUND_KEY, on ? 'on' : 'off'); } catch { /* storage blocked */ }
+  els.soundBtn.setAttribute('aria-pressed', String(on));
+  els.soundBtn.setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
+  els.soundBtn.title = on ? 'Sound on' : 'Sound off';
+  els.soundBtn.innerHTML = `<i class="ph ${on ? 'ph-speaker-high' : 'ph-speaker-slash'}" aria-hidden="true"></i>`;
+}
+setSoundOn(readSoundPref());
+els.soundBtn.addEventListener('click', () => { sound.unlock(); setSoundOn(!sound.isEnabled()); });
+for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => { sound.unlock(); }, { passive: true });
+
 // ---------- session flow ----------
 function resetSession() {
   Object.assign(session, {
     phase: 'off', validOk: false, talking: false, validMs: 0, lastTick: performance.now(),
-    breaths: 0, rates: [], pulses: [], rate: null, pulse: null, smileSince: 0, hint: '', palette: null, kept: false,
+    breaths: 0, rates: [], pulses: [], rate: null, pulse: null, smileSince: 0, smileLast: 0, smilePeak: 0, pausedMs: 0, finish: null, hint: '', palette: null, kept: false,
   });
   glass.reset();
   glass.setHeat(0);
@@ -253,6 +316,7 @@ function resetSession() {
 
 function startBlowing() {
   session.phase = 'blowing';
+  glass.embers(false);
   glass.setHeat(1);
   render();
 }
@@ -264,8 +328,12 @@ function startNewVessel() {
   session.smileSince = 0;
   session.palette = null;
   session.kept = false;
+  session.pausedMs = 0;
+  session.finish = null;
   session.phase = 'blowing';
   els.done.hidden = true;
+  sound.coolStop();
+  sound.furnace(true);
   render();
 }
 
@@ -278,15 +346,52 @@ async function cutGlass() {
   session.palette = paletteFor({ breathRate, pulse });
   glass.freeze(false);
   glass.setPalette({ breathRate, pulse });
+  session.finish = rollFinish();
+  glass.setFinish(session.finish);
   render();
+  sound.cut();
+  sound.furnace(false);
+  sound.coolStart();
   try { await glass.cut(); } catch (e) { console.error('[glassbreath] cut failed', e); }
+  sound.coolStop();
   session.phase = 'done';
   els.doneName.textContent = vesselName(session.palette);
   els.doneMeta.textContent = `${session.breaths} breaths, ${paceText(median(session.rates))}.`;
+  els.doneFinish.hidden = !session.finish;
+  if (session.finish) { els.doneFinish.querySelector('span').textContent = `Rare finish: ${finishName(session.finish)}`; sound.rare(); }
+  els.doneAwards.hidden = true;
+  els.doneAwards.replaceChildren();
   els.done.hidden = false;
+  awardAchievements();
   els.keepBtn.disabled = false;
   els.keepBtn.focus({ preventScroll: true });
   render();
+}
+
+// Check achievements for the vessel that just cooled. Sample runs never count.
+async function awardAchievements() {
+  try {
+    const run = {
+      breaths: session.breaths, breathRate: median(session.rates), pausedMs: session.pausedMs,
+      recipe: glass.snapshot().recipe, finish: session.finish, fromSample: source !== 'camera',
+    };
+    const { unlocked, state } = evaluate(run, await bridge.getProgress());
+    if (run.fromSample) return;
+    await bridge.saveProgress(state);
+    rack.setProgress?.(state);
+    if (!unlocked.length) return;
+    const byId = new Map(ACHIEVEMENTS.map((a) => [a.id, a]));
+    els.doneAwards.replaceChildren(...unlocked.map((id) => {
+      const a = byId.get(id);
+      const li = document.createElement('li');
+      li.innerHTML = `<i class="ph ${a?.icon || 'ph-medal'}" aria-hidden="true"></i><span></span>`;
+      li.querySelector('span').textContent = a?.title || id;
+      li.title = a?.description || '';
+      return li;
+    }));
+    els.doneAwards.hidden = false;
+    setTimeout(() => sound.achievement(), session.finish ? 900 : 300);
+  } catch (e) { console.error('[glassbreath] achievements failed', e); }
 }
 
 els.keepBtn.addEventListener('click', async () => {
@@ -305,6 +410,7 @@ els.keepBtn.addEventListener('click', async () => {
         breaths: session.breaths,
         breathRate: rate == null ? null : Math.round(rate),
         source,
+        finish: session.finish ?? null,
       },
     };
     await bridge.saveVessel({ pngDataUrl: snap.pngDataUrl, recipe });
@@ -323,7 +429,7 @@ els.shareBtn.addEventListener('click', () => {
   const rate = median(session.rates);
   share.open({
     pngDataUrl: snap.pngDataUrl, name: vesselName(session.palette), breaths: session.breaths,
-    breathRate: rate == null ? null : Math.round(rate), createdAt: Date.now(), fromSample: source === 'replay',
+    breathRate: rate == null ? null : Math.round(rate), createdAt: Date.now(), fromSample: source === 'replay', finish: session.finish,
   });
 });
 
@@ -340,6 +446,8 @@ function tick() {
   const now = performance.now();
   const dt = Math.min(250, now - session.lastTick);
   session.lastTick = now;
+  // Time the glass was paused while blowing (bad picture or talking), for "Steady hand".
+  if (session.phase === 'blowing' && !canShape()) session.pausedMs += dt;
   if (session.phase !== 'warming') return;
   if (canShape()) session.validMs += dt;
   const heat = Math.min(1, session.validMs / WARMUP_MS);
@@ -356,7 +464,7 @@ function render() {
   const p = session.phase;
   if (p === 'warming') {
     els.countMain.textContent = 'Warming up';
-    els.countSub.textContent = 'sit still, breathe slowly';
+    els.countSub.textContent = 'sit still';
   } else if (p === 'blowing') {
     els.countMain.textContent = `Breath ${session.breaths}`;
     els.countSub.textContent = session.breaths < TARGET_BREATHS ? `of ${TARGET_BREATHS}` : 'smile when you like it';
@@ -365,7 +473,7 @@ function render() {
     els.countSub.textContent = `${session.breaths} breaths`;
   } else if (p === 'done') {
     els.countMain.textContent = `${session.breaths} breaths`;
-    els.countSub.textContent = 'blown into one vessel';
+    els.countSub.textContent = 'one vessel';
   }
   els.heat.hidden = p !== 'warming';
   els.read.hidden = p === 'cooling' || p === 'done';
@@ -374,14 +482,17 @@ function render() {
 
   let hint;
   if (p === 'cooling' || p === 'done') hint = '';
-  else if (session.talking) hint = 'Talking pauses the glass. Breathe quietly.';
+  else if (session.talking) hint = 'Talking pauses it';
   else if (!session.validOk) hint = session.hint || 'Finding you…';
-  else if (p === 'warming') hint = 'Good. Sit still and breathe slowly.';
-  else if (session.breaths === 0 && session.breathPhase === 'hold') hint = 'Breathe in slowly to swell the glass.';
-  else if (session.breathPhase === 'inhale') hint = 'In… the glass swells.';
-  else if (session.breathPhase === 'exhale') hint = 'Out, slowly… the band sets.';
-  else hint = 'Next breath when you are ready.';
+  else if (p === 'warming') hint = 'Good. Breathe slowly';
+  else if (session.breaths === 0 && session.breathPhase === 'hold') hint = 'Breathe in slowly';
+  else if (session.breathPhase === 'inhale') hint = 'In…';
+  else if (session.breathPhase === 'exhale') hint = 'Out…';
+  else hint = 'Next breath';
   els.hint.textContent = hint;
+  // The orb next to the camera grows on the in-breath and shrinks on the out-breath.
+  const orbPhase = (p === 'warming' || p === 'blowing') && session.validOk && !session.talking ? (session.breathPhase || 'hold') : 'off';
+  if (els.orb.dataset.phase !== orbPhase) els.orb.dataset.phase = orbPhase;
   els.hint.classList.toggle('ok', canShape());
 
   setReadout(els.readRate, session.rate);
@@ -408,6 +519,10 @@ function friendlyError(e) {
   if (/auth/i.test(msg)) return 'Presage could not check the API key. Check the key and your internet connection.';
   if (/camera|getUserMedia|NotAllowed|NotFound|NotReadable/i.test(msg)) return 'The camera could not start. Close other apps using it, then try again.';
   if (e?.code === 'REPLAY_LOAD_FAILED') return 'The sample recording could not be loaded.';
+  if (e?.code === 'CAMERA_FAILED') return /NotAllowed/.test(msg)
+    ? 'Camera permission was refused. Allow the camera, then try again.'
+    : 'The camera could not start. Close other apps using it, then try again.';
+  if (e?.code === 1 || /valid state/i.test(msg)) return 'The measurement stopped. Press Try again to restart it.';
   return msg || 'Something went wrong with the measurement.';
 }
 
@@ -417,11 +532,18 @@ function showError(text, retryable) {
   els.errorBanner.hidden = false;
 }
 function hideError() { els.errorBanner.hidden = true; }
+// Retry rebuilds the whole SDK session: restarting a session that has
+// failed leaves the native SDK in an invalid state.
 els.retryBtn.addEventListener('click', async () => {
   hideError();
-  if (!signals) return;
-  try { await signals.stop(); } catch { /* ignore */ }
-  await signals.start();
+  if (!signals || !source) return;
+  const kind = source;
+  const old = signals;
+  signals = null;
+  try { await old.stop(); } catch { /* reported already */ }
+  old.destroy();
+  els.preview.srcObject = null;
+  await begin(kind);
 });
 
 window.addEventListener('beforeunload', () => {
@@ -436,4 +558,13 @@ window.addEventListener('beforeunload', () => {
   els.teleToggle.checked = !!config.enableTelemetry;
   updateTeleText();
   show('consent');
+  await fontsLoaded();
+  document.body.classList.remove('booting');
 })();
+
+// Wait for the page fonts and the icon font, but never more than 2.5 s.
+function fontsLoaded() {
+  const want = ['800 40px "Big Shoulders Display"', '500 20px "Big Shoulders Text"', '400 20px "Kalam"', '20px "Phosphor"'];
+  const loads = Promise.all(want.map((f) => document.fonts.load(f).catch(() => null))).then(() => document.fonts.ready);
+  return Promise.race([loads, new Promise((r) => setTimeout(r, 2500))]);
+}

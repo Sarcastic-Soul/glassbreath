@@ -7,6 +7,7 @@
 @import '@fontsource/kalam/latin-400';
 @import '@fontsource/kalam/latin-700';
 @import '@phosphor-icons/web/regular/style.css';
+@import './ui/shelf.css';
 
 :root {
   --ground: #16120f;
@@ -114,10 +115,16 @@ button { font: inherit; color: inherit; }
   font-family: var(--display); font-weight: 800; text-transform: uppercase;
   font-size: clamp(72px, 8.2vw, 118px); line-height: 0.88; letter-spacing: -0.01em;
 }
-.lede { margin-top: 26px; font-size: 23px; line-height: 1.4; max-width: 600px; }
-.facts { list-style: none; margin-top: 24px; display: grid; gap: 10px; max-width: 620px; }
-.facts li { display: grid; grid-template-columns: 30px 1fr; gap: 12px; font-size: 19px; }
-.facts .ph { color: var(--molten); font-size: 24px; margin-top: 1px; }
+/* How it works: three steps, icon first. */
+.steps { list-style: none; margin-top: 34px; display: flex; gap: 0; max-width: 660px; counter-reset: step; }
+.steps li { flex: 1; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding-right: 18px; position: relative; }
+.steps li + li { padding-left: 22px; border-left: 2px solid var(--ground-3); }
+.steps .ph { grid-row: span 2; font-size: 40px; color: var(--molten); }
+.steps b { font-family: var(--display); font-weight: 800; font-size: 30px; text-transform: uppercase; line-height: 1; }
+.steps span { font-size: 16px; color: var(--ink-soft); line-height: 1.2; }
+.chips { list-style: none; margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px 18px; max-width: 680px; }
+.chips li { display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--ink-soft); }
+.chips .ph { font-size: 19px; color: var(--chalk); }
 .consent-copy .actions { margin-top: 30px; }
 .tele { margin-top: 22px; display: flex; align-items: center; gap: 14px; font-size: 17px; color: var(--ink-soft); cursor: pointer; width: fit-content; min-height: 44px; }
 .tele input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -232,8 +239,8 @@ dialog p { margin: 14px 0 22px; color: var(--ink-soft); }
   .read strong { font-size: 30px; }
   .consent-copy { top: 12vh; }
   .consent-copy h1 { font-size: clamp(64px, 7vw, 100px); }
-  .lede { margin-top: 18px; font-size: 21px; }
-  .facts { margin-top: 18px; }
+  .steps { margin-top: 24px; }
+  .chips { margin-top: 16px; }
   .consent-copy .actions { margin-top: 22px; }
   .tele { margin-top: 12px; }
 }
@@ -246,3 +253,63 @@ dialog p { margin: 14px 0 22px; color: var(--ink-soft); }
 .count b.tick { animation: tick 700ms ease-out; }
 @keyframes tick { 0% { color: var(--molten); } 100% { color: var(--ink); } }
 #rack { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+
+/* Startup: hide the page until the fonts and icons are ready, so it never
+   flashes in fallback fonts. A small ember glows in the meantime. */
+.boot { display: none; }
+body.booting > :not(.boot) { visibility: hidden; }
+body.booting .boot {
+  display: grid; place-items: center;
+  position: fixed; inset: 0; z-index: 100;
+  background: var(--ground, #15110e);
+}
+.boot-ember {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #ffd9a0, #ff7b1c 55%, #8a2e08);
+  box-shadow: 0 0 24px 6px rgba(255, 123, 28, 0.35);
+  animation: boot-glow 1.1s ease-in-out infinite alternate;
+}
+@keyframes boot-glow { from { opacity: 0.55; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .boot-ember { animation: none; } }
+
+/* Breath orb beside the camera: grows on the in-breath, shrinks on the out-breath. */
+.orb { position: absolute; left: calc(100% + 22px); top: 50%; width: 72px; height: 72px; margin-top: -36px; display: grid; place-items: center; }
+.orb span {
+  width: 100%; height: 100%; border-radius: 50%;
+  border: 2px solid var(--molten); background: rgba(255, 123, 28, 0.12);
+  transform: scale(0.55); opacity: 0.5;
+  transition: transform 2.6s cubic-bezier(0.3, 0, 0.2, 1), opacity 600ms ease-out, background-color 600ms ease-out;
+}
+.orb[data-phase="inhale"] span { transform: scale(1); opacity: 1; background: rgba(255, 123, 28, 0.28); }
+.orb[data-phase="exhale"] span { transform: scale(0.55); opacity: 0.85; transition-duration: 3.4s, 600ms, 600ms; }
+.orb[data-phase="off"] span { opacity: 0.15; }
+.done-note .ph, .trace-lbl .ph, .empty .ph { vertical-align: -2px; color: var(--chalk); }
+
+/* Sound toggle in the header */
+.nav .sound { min-width: 44px; min-height: 44px; display: grid; place-items: center; font-size: 22px; color: var(--ink-soft); }
+.nav .sound:hover, .nav .sound:focus-visible { color: var(--ink); }
+.nav .sound[aria-pressed="false"] { color: var(--ink-faint, #7d7065); }
+
+/* API key form on the consent screen (packaged builds) */
+.key-form { margin-top: 22px; max-width: 560px; }
+.key-form label { display: flex; align-items: center; gap: 8px; font-size: 17px; color: var(--ink); }
+.key-row { display: flex; gap: 10px; margin-top: 8px; }
+.key-row input {
+  flex: 1; min-height: 44px; padding: 0 14px; font: inherit; font-size: 17px;
+  background: var(--ground-2); color: var(--ink); border: 1px solid var(--line); border-radius: 0;
+}
+.key-row input:focus-visible { outline: 2px solid var(--molten); outline-offset: 2px; }
+.key-help { margin-top: 6px; font-size: 14px; color: var(--ink-soft); }
+
+/* Done panel: rare finish and new achievements */
+.done-finish { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--molten); font-size: 18px; }
+.done-awards { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.done-awards li {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px;
+  border: 1px solid var(--molten); color: var(--ink); font-size: 16px;
+  animation: award-in 420ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+.done-awards li:nth-child(2) { animation-delay: 80ms; }
+.done-awards li:nth-child(3) { animation-delay: 160ms; }
+.done-awards .ph { color: var(--molten); font-size: 20px; }
+@keyframes award-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

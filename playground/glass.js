@@ -21,7 +21,14 @@ bind('pPulse', palette);
 $('freeze').addEventListener('change', (e) => glass.freeze(e.target.checked));
 $('beat').addEventListener('click', () => glass.heartbeat(1));
 $('cut').addEventListener('click', async () => { await glass.cut(); $('stats').dataset.cut = 'done'; });
-$('reset').addEventListener('click', () => { glass.reset(); sim.cycleStart = performance.now(); });
+// reset clears the finish and embers, so re-apply what the controls say
+const applyFx = () => { glass.setFinish($('finish').value || null); glass.embers($('embers').checked); };
+$('reset').addEventListener('click', () => { glass.reset(); applyFx(); sim.cycleStart = performance.now(); });
+$('embers').addEventListener('change', (e) => glass.embers(e.target.checked));
+$('finish').addEventListener('change', (e) => glass.setFinish(e.target.value || null));
+bind('sparkK', () => {});
+const sparks = () => glass.sparks(Number($('sparkK').value));
+$('sparks').addEventListener('click', sparks);
 
 let lastRecipe = null;
 try { lastRecipe = JSON.parse(localStorage.getItem('glassbreath:lastRecipe') || 'null'); } catch { lastRecipe = null; }
@@ -61,6 +68,7 @@ setInterval(() => {
   if (u >= 1) {
     const inhaleMs = Math.round(sim.period * sim.inhale);
     glass.commitBreath({ depth: sim.depth, durationMs: Math.round(sim.period), inhaleMs, exhaleMs: Math.round(sim.period) - inhaleMs });
+    if ($('autoSparks').checked) sparks();
     newCycle(now);
     u = 0;
   }
@@ -70,10 +78,11 @@ setInterval(() => {
 
 $('commit').addEventListener('click', () => {
   glass.commitBreath({ depth: 0.3 + Math.random() * 0.7, durationMs: 4000 + Math.random() * 4000, exhaleMs: 2500 + Math.random() * 3000 });
+  if ($('autoSparks').checked) sparks();
 });
 
 setInterval(() => { if ($('autoBeat').checked) glass.heartbeat(0.7); }, 60000 / 68);
 setInterval(() => {
   const s = glass.getStats();
-  $('stats').textContent = `${s.fps} fps · ${s.triangles} tris · ${s.mode} · ${s.breaths} breaths`;
+  $('stats').textContent = `${s.fps} fps · ${s.calls} calls · ${s.triangles} tris · ${s.mode} · ${s.breaths} breaths · ${s.particles} fx`;
 }, 500);

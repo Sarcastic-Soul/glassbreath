@@ -258,14 +258,19 @@ function round(v, d) {
   return Math.round(v * k) / k;
 }
 
+/** Rare surface finishes. Anything else (including a missing field) means plain glass. */
+export const FINISHES = Object.freeze(['gold', 'crackle', 'opal']);
+export const normalizeFinish = (f) => (FINISHES.includes(f) ? f : null);
+
 /** Plain JSON recipe that fully rebuilds a vessel. */
-export function makeRecipe({ profile, palette = null, breaths = [], createdAt } = {}) {
+export function makeRecipe({ profile, palette = null, breaths = [], finish = null, createdAt } = {}) {
   if (!Array.isArray(profile) || profile.length < 8) throw new Error('profile missing');
   return {
     version: RECIPE_VERSION,
     profile: profile.map(([r, y]) => [round(r, 4), round(y, 4)]),
     palette: palette ? { ...palette } : null,
     breaths: breaths.map(normalizeBreath),
+    finish: normalizeFinish(finish),
     createdAt: createdAt ?? new Date().toISOString(),
   };
 }
@@ -290,6 +295,7 @@ export function parseRecipe(input) {
     profile: profile.map(([r, y]) => [round(r, 4), round(y, 4)]),
     palette: obj.palette && typeof obj.palette === 'object' ? { ...obj.palette } : null,
     breaths: Array.isArray(obj.breaths) ? obj.breaths.map(normalizeBreath) : [],
+    finish: normalizeFinish(obj.finish), // optional: older recipes have none
     createdAt: typeof obj.createdAt === 'string' ? obj.createdAt : new Date(0).toISOString(),
   };
 }

@@ -4,7 +4,7 @@
 
 A desktop app that watches your chest rise and fall through the webcam, using the [Presage SmartSpectra SDK](https://physiology.presagetech.com/), and turns every slow breath into a band of molten glass. Smile to cut it off the pipe, watch it cool, and keep it on your rack.
 
-[Download v0.1.0](https://github.com/Sarcastic-Soul/glassbreath/releases/tag/v0.1.0) for Linux, Windows or macOS. No webcam? The built-in sample recording runs the whole thing.
+[Watch the 2-minute demo](https://youtu.be/5Io4VdRcKS4) · [Download v0.1.1](https://github.com/Sarcastic-Soul/glassbreath/releases/tag/v0.1.1) for Linux, Windows or macOS. No webcam? The built-in sample recording runs the whole thing.
 
 ![Glassbreath home screen, with a turning teal vessel next to the title "Blow glass with your breath"](docs/screenshots/home-1.jpg)
 
@@ -43,7 +43,7 @@ The row above, left to right, was blown from sample breathing:
 
 ![The Cooling rack: a shelf of kept vessels with names, dates and breath counts](docs/screenshots/rack.jpg)
 
-The home screen turns your recent vessels (or a few sample ones on a fresh install). The rack keeps each one with its name, date and breath count, plus calm achievements such as "Slow breather" or collecting all six glass colours. None of them reward breathing faster.
+The home screen turns your recent vessels (or a few sample ones on a fresh install). Drag any finished vessel to tumble it in 3D, flick it to keep it rolling, scroll to zoom, and double-click to stand it back up. On the rack, press "Turn in 3D" on a vessel to pick it up the same way. The rack keeps each one with its name, date and breath count, plus calm achievements such as "Slow breather" or collecting all six glass colours. None of them reward breathing faster.
 
 Press "Share" to make a picture card of your vessel (name, breath count, and your breathing pace only if you switch it on). You can copy it, save it, or open a post on X or Bluesky with the picture ready to paste.
 

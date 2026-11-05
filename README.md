@@ -1,14 +1,53 @@
 # Glassbreath
 
-Blow a glass vessel with your own breathing.
+**Blow a glass vessel with your own breathing.**
 
-Glassbreath is a desktop app (Electron) that watches your chest rise and fall through the webcam, using the [Presage SmartSpectra SDK](https://physiology.presagetech.com/). Each slow breath adds a band to a glowing, molten glass vessel on the end of a blowpipe. A deep breath makes a wide band, a short one makes a narrow neck. When you like the shape, smile (or press Space) to cut it off the pipe. It cools into a colour picked from your breathing pace, and you can keep it on the "Cooling rack", a small gallery saved on your computer.
+A desktop app that watches your chest rise and fall through the webcam, using the [Presage SmartSpectra SDK](https://physiology.presagetech.com/), and turns every slow breath into a band of molten glass. Smile to cut it off the pipe, watch it cool, and keep it on your rack.
 
-Your breathing decides the whole finished vessel. Deep breaths give a fuller belly, more breaths make it taller, deepening or easing breaths move the widest point up or down, and long out-breaths give a longer neck. The pattern comes from your breathing too: steady breaths get a white thread wrapped once per breath or a fine Venetian-style lattice, uneven depth gets combed feather waves, and a varied pace gets coloured bands, one per breath. The home screen turns your recent vessels, plus a few blown from sample breathing.
+[Download v0.1.0](https://github.com/Sarcastic-Soul/glassbreath/releases/tag/v0.1.0) for Linux, Windows or macOS. No webcam? The built-in sample recording runs the whole thing.
+
+![Glassbreath home screen, with a turning teal vessel next to the title "Blow glass with your breath"](docs/screenshots/home-1.jpg)
+
+## How it works
+
+| Breathe | Smile | Keep |
+|---|---|---|
+| ![Glowing orange glass on the end of a blowpipe, breath 5 of 10](docs/screenshots/blow-2.jpg) | ![The vessel cooling from orange to its final colour](docs/screenshots/cooling.jpg) | ![The finished Sea glass vessel with a "Keep on the rack" button](docs/screenshots/done.jpg) |
+| Each slow breath adds a band to the hot glass. A deep breath makes a wide band, a short one makes a narrow neck. | Hold a smile (or press Space) to cut the glass off the pipe. It cools into a colour picked from your breathing pace. | Keep it on the "Cooling rack", a small gallery saved on your computer only. |
+
+## Every breath leaves a mark
+
+![Eight finished vessels in a row, from a wide teal lattice vase to a squat straw-coloured bowl](docs/screenshots/vessels.png)
+
+Your breathing decides the whole finished vessel:
+
+- **Shape.** Deep breaths give a fuller belly, more breaths make it taller, deepening or easing breaths move the widest point up or down, and long out-breaths give a longer neck.
+- **Colour.** Slow breathing cools into teal and sea glass, quicker breathing into olive, peridot, straw and honey.
+- **Pattern.** Steady breaths get a white thread wrapped once per breath or a fine Venetian-style lattice (filigrana). Uneven depth gets combed feather waves. A varied pace gets coloured bands, one per breath (incalmo).
+- **Rare finish.** About one vessel in eight cools with gold fleck, crackle or opal.
+
+The row above, left to right, was blown from sample breathing:
+
+| Breathing | Vessel |
+|---|---|
+| 5 deep breaths a minute | Lagoon, filigrana lattice |
+| 8 a minute, long out-breaths | Lagoon, filigrana, opal finish |
+| 12 a minute, steady | Sea glass, white thread |
+| 15 a minute, uneven depth | Jade, feather combing |
+| 17 a minute, deepening | Olive glass, white thread |
+| 19 a minute, easing off | Peridot, coloured bands, gold fleck |
+| 20 a minute, quick and shallow | Peridot, coloured bands |
+| 24 a minute, three big breaths | Straw, white thread |
+
+## Your rack
+
+![The Cooling rack: a shelf of kept vessels with names, dates and breath counts](docs/screenshots/rack.jpg)
+
+The home screen turns your recent vessels (or a few sample ones on a fresh install). The rack keeps each one with its name, date and breath count, plus calm achievements such as "Slow breather" or collecting all six glass colours. None of them reward breathing faster.
 
 Press "Share" to make a picture card of your vessel (name, breath count, and your breathing pace only if you switch it on). You can copy it, save it, or open a post on X or Bluesky with the picture ready to paste.
 
-Along the way there are sounds made in code (furnace roar, a glass tink for each band, a chime when you cut, cooling crackle), sparks and steam, about one vessel in eight cooling with a rare finish (gold fleck, crackle or opal), and calm achievements such as "Slow breather" or collecting all six glass colours. None of them reward breathing faster.
+Sounds are made in code: furnace roar, a glass tink for each band, a chime when you cut, cooling crackle.
 
 It is a toy and a slow-breathing exercise, not a health tool. The numbers on screen are rough camera estimates.
 

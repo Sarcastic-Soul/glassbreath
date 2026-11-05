@@ -26,7 +26,7 @@
 
   <!-- Consent -->
   <main class="screen" id="consent" aria-labelledby="consent-title">
-    <p class="hand showcase-cap" id="showcase-cap" aria-live="off"></p>
+    <p class="hand showcase-cap" aria-live="off"><span id="showcase-cap"></span><small class="turn-hint"><i class="ph ph-hand-grabbing" aria-hidden="true"></i> drag to turn it, scroll to zoom</small></p>
 
     <div class="consent-copy">
       <h1 id="consent-title">Blow glass<br>with your breath</h1>
@@ -105,6 +105,7 @@
         <button type="button" class="btn secondary small" id="btn-share"><i class="ph ph-share-network"></i>Share</button>
         <button type="button" class="btn secondary small" id="btn-again"><i class="ph ph-arrow-counter-clockwise"></i>Blow another</button>
       </div>
+      <p class="done-note"><i class="ph ph-hand-grabbing" aria-hidden="true"></i> Drag the glass to turn it over. Scroll to zoom.</p>
       <p class="done-note"><i class="ph ph-lock-simple" aria-hidden="true"></i> Saved on this computer only. No video.</p>
     </div>
 
@@ -125,6 +126,17 @@
     <p class="empty" id="rack-empty" hidden><i class="ph ph-archive-box" aria-hidden="true"></i> Empty rack. Blow a vessel and keep it.</p>
     <div class="rack-foot"><button type="button" class="linkish danger" id="btn-delete-all"><i class="ph ph-trash" aria-hidden="true"></i> Delete all vessels</button></div>
   </main>
+
+  <!-- One rack vessel, large, on the glass canvas. -->
+  <div class="inspect" id="inspect" role="dialog" aria-modal="true" aria-labelledby="inspect-name" hidden>
+    <div class="inspect-info">
+      <p class="hand inspect-kicker" id="inspect-kicker"></p>
+      <h2 id="inspect-name"></h2>
+      <p class="inspect-meta" id="inspect-meta"></p>
+    </div>
+    <button type="button" class="navbtn inspect-close" id="inspect-close"><i class="ph ph-x" aria-hidden="true"></i>Close</button>
+    <p class="hand inspect-hint"><i class="ph ph-hand-grabbing" aria-hidden="true"></i> Drag to turn it any way. Scroll to zoom, double-click to stand it up. Esc to close.</p>
+  </div>
 
   <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
 

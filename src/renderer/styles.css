@@ -357,3 +357,55 @@ dialog[open]::backdrop { animation: fade-in 220ms ease-out both; }
   .steps li { padding-right: 12px; }
   .consent-copy .btn { font-size: 22px; min-height: 54px; padding: 0 20px; }
 }
+
+/* Drag to turn. The glass layer ignores the pointer except when the canvas holds
+   a finished vessel; the screen on top lets the pointer through to it. */
+#glass.turnable { pointer-events: auto; cursor: grab; touch-action: none; }
+#glass.turnable.grabbing { cursor: grabbing; }
+#glass:focus-visible { outline: none; }
+.glass-layer:has(#glass:focus-visible) { outline: 2px solid var(--molten); outline-offset: -8px; }
+body[data-screen="consent"] #consent,
+body[data-screen="stage"][data-phase="done"] #stage { pointer-events: none; }
+body[data-screen="consent"] .consent-copy,
+body[data-screen="stage"][data-phase="done"] #stage .done { pointer-events: auto; }
+.showcase-cap { pointer-events: none; }
+.showcase-cap span { display: block; }
+.turn-hint { display: block; margin-top: 6px; font-size: 17px; color: var(--ink-soft); transform: rotate(1deg); }
+.turn-hint .ph, .inspect-hint .ph { vertical-align: -2px; }
+
+/* Rack: the vessel picture opens it large. */
+.shelf .plate .look {
+  display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; position: relative;
+}
+.shelf .plate .look:focus-visible { outline: 2px solid var(--molten); outline-offset: 4px; }
+.shelf .plate .look-tag {
+  position: absolute; right: 10px; top: 10px; display: inline-flex; gap: 6px; align-items: center;
+  font-family: var(--text); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--ink); background: var(--ground-2); border: 1px solid var(--line); padding: 4px 8px;
+  opacity: 0; transition: opacity 160ms ease-out;
+}
+.shelf .plate .look:hover .look-tag, .shelf .plate .look:focus-visible .look-tag { opacity: 1; }
+
+/* One rack vessel, large. The glass layer becomes the backdrop. */
+body[data-inspect] .glass-layer {
+  visibility: visible; z-index: 31; left: 0; transform: none;
+  background: radial-gradient(ellipse 40% 50% at 50% 54%, rgba(255, 106, 22, 0.14), rgba(255, 106, 22, 0) 72%), var(--ground);
+  animation: fade-in 220ms ease-out both;
+}
+.inspect { position: fixed; inset: 0; z-index: 32; pointer-events: none; }
+.inspect-info { position: absolute; left: calc(var(--gutter) + 32px); top: 18vh; max-width: 340px; }
+.inspect-kicker { font-size: 24px; }
+.inspect h2 { font-family: var(--display); font-weight: 800; font-size: clamp(56px, 6vw, 84px); line-height: 0.92; text-transform: uppercase; margin-top: 4px; }
+.inspect-meta { margin-top: 10px; font-size: 18px; color: var(--ink-soft); }
+.inspect-close {
+  position: absolute; top: 28px; right: var(--gutter); pointer-events: auto;
+  background: var(--ground); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
+  font-family: var(--text); font-weight: 500; font-size: 18px; min-height: 44px; padding: 0 14px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.inspect-close:hover { border-color: var(--ink-soft); }
+.inspect-hint { position: absolute; left: 0; right: 0; bottom: 7vh; text-align: center; font-size: 20px; color: var(--ink-soft); }
+@media (max-width: 1100px) {
+  .inspect-info { top: 104px; }
+}
+.done-note + .done-note { margin-top: 6px; }

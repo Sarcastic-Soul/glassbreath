@@ -6,6 +6,7 @@ import { createSignals } from './signals/index.js';
 import { createGlassStage, paletteFor, SAMPLES, sampleRecipe } from './glass/index.js';
 import { createTrace } from './ui/trace.js';
 import { createRack } from './ui/rack.js';
+import { createTurntable } from './ui/turntable.js';
 import { vesselName, paceText } from './ui/names.js';
 import { createShareDialog } from './ui/share.js';
 import { createSound } from './audio/sound.js';
@@ -34,6 +35,7 @@ const els = {
   glassLayer: $('glass-layer'), showcaseCap: $('showcase-cap'), toast: $('toast'), leaveDialog: $('leave-dialog'), leaveTitle: $('leave-title'), leaveText: $('leave-text'),
   keyForm: $('key-form'), keyInput: $('key-input'), doneFinish: $('done-finish'), doneAwards: $('done-awards'), smileFill: $('smile-fill'), read: document.querySelector('#stage .read'), readRate: $('read-rate'), readPulse: $('read-pulse'),
   done: $('done'), doneName: $('done-name'), doneMeta: $('done-meta'), keepBtn: $('btn-keep'), againBtn: $('btn-again'), shareBtn: $('btn-share'),
+  inspect: $('inspect'), inspectKicker: $('inspect-kicker'), inspectName: $('inspect-name'), inspectMeta: $('inspect-meta'), inspectClose: $('inspect-close'),
   errorBanner: $('error-banner'), errorText: $('error-text'), retryBtn: $('btn-retry'),
 };
 
@@ -45,6 +47,7 @@ const rack = createRack({
   shelf: $('shelf'), empty: $('rack-empty'), sub: $('rack-sub'),
   deleteAllBtn: $('btn-delete-all'), confirmDialog: $('confirm-dialog'), store: bridge,
   onShare: (v) => share.open(v),
+  onInspect: (item, o) => inspect.open(item, o),
 });
 const share = createShareDialog({
   dialog: $('share-dialog'), preview: $('share-preview'), paceToggle: $('share-pace'), status: $('share-status'),
@@ -77,12 +80,59 @@ const session = {
 // Each screen shows only the header buttons that make sense there: no rack
 // while blowing, so a vessel in progress is never left behind by accident.
 function show(screen) {
+  inspect.close();
   for (const s of ['consent', 'stage', 'rack']) els[s].hidden = s !== screen;
   els.body.dataset.screen = screen;
   for (const b of els.nav.querySelectorAll('[data-on]')) b.hidden = !b.dataset.on.split(' ').includes(screen);
   if (screen === 'rack') rack.refresh();
   if (screen === 'consent') showcase.start(); else showcase.stop();
+  updateTurnable();
 }
+
+// ---------- drag to turn ----------
+// Any finished vessel on the glass canvas can be turned by hand: the home
+// showcase, the cooled vessel on the stage, and a rack vessel opened large.
+const turntable = createTurntable(els.glassCanvas, glass, {
+  onGrab: () => showcase.hold(),
+  onRelease: () => showcase.resume(),
+});
+let turnable = null;
+function updateTurnable() {
+  const b = els.body.dataset;
+  const on = b.screen === 'consent' || !!b.inspect || (b.screen === 'stage' && b.phase === 'done');
+  if (on !== turnable) turntable.setEnabled((turnable = on));
+}
+
+// ---------- rack vessel, large ----------
+const inspect = (() => {
+  let opener = null;
+  function open(item, { number, opener: from } = {}) {
+    const meta = item.recipe?.meta ?? {};
+    try { glass.loadRecipe(item.recipe); } catch (e) { console.error('[glassbreath] inspect load failed', e); return; }
+    opener = from ?? null;
+    const breaths = Number(meta.breaths) || item.recipe?.breaths?.length || 0;
+    els.inspectKicker.textContent = number ? `No. ${number}` : 'Cooled';
+    els.inspectName.textContent = meta.name ?? 'Glass';
+    els.inspectMeta.textContent = `${breaths} breaths, ${paceText(meta.breathRate)}`;
+    els.inspect.hidden = false;
+    els.body.dataset.inspect = '1';
+    els.rack.inert = true;
+    updateTurnable();
+    els.inspectClose.focus();
+  }
+  function close() {
+    if (els.inspect.hidden) return;
+    els.inspect.hidden = true;
+    delete els.body.dataset.inspect;
+    els.rack.inert = false;
+    updateTurnable();
+    opener?.focus({ preventScroll: true });
+    opener = null;
+  }
+  els.inspectClose.addEventListener('click', close);
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !els.inspect.hidden) { e.preventDefault(); close(); } });
+  return { open, close };
+})();
 
 els.openRackBtn.addEventListener('click', () => show('rack'));
 els.homeBtn.addEventListener('click', () => show('consent'));
@@ -93,7 +143,7 @@ els.rackBlowBtn.addEventListener('click', () => { show('consent'); els.cameraBtn
 // recent ones first, topped up with vessels blown from sample breathing.
 const SHOWCASE_MS = 8000;
 const showcase = (() => {
-  let on = false, timer = 0, run = 0, i = 0, list = [];
+  let on = false, timer = 0, run = 0, i = 0, list = [], held = false;
   async function load() {
     let mine = [];
     try { mine = (await bridge.listVessels()) ?? []; } catch (e) { console.error('[glassbreath] showcase list failed', e); }
@@ -127,11 +177,25 @@ const showcase = (() => {
   }
   function stop() {
     on = false;
+    held = false;
     run++;
     clearTimeout(timer);
     els.glassLayer.classList.remove('fade');
   }
-  return { start, stop };
+  // While someone is turning a vessel, keep it; move on a while after they let go.
+  function hold() {
+    if (!on) return;
+    held = true;
+    clearTimeout(timer);
+  }
+  function resume() {
+    if (!on || !held) return;
+    held = false;
+    clearTimeout(timer);
+    const r = run;
+    timer = setTimeout(() => next(r), SHOWCASE_MS);
+  }
+  return { start, stop, hold, resume };
 })();
 
 // ---------- leaving a session ----------
@@ -559,7 +623,7 @@ function render() {
     els.countSub.textContent = 'one vessel';
   }
   els.heat.hidden = p !== 'warming';
-  if (els.body.dataset.phase !== p) els.body.dataset.phase = p;
+  if (els.body.dataset.phase !== p) { els.body.dataset.phase = p; updateTurnable(); }
   els.count.hidden = p === 'done';
   els.cam.hidden = p === 'cooling' || p === 'done';
   const finished = p === 'done' && session.kept;

@@ -175,6 +175,11 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     frozen: false,
     dim: 1,
     spin: 0,
+    hold: false, // a hand is turning the cooled vessel (drag to turn)
+    // Hand-held view of a cooled vessel: free rotation about its middle (trackball),
+    // flick speed, zoom, and an ease back home on double-click.
+    orbit: { q: new THREE.Quaternion(), vx: 0, vy: 0, zoom: 1, zoomTarget: 1, home: false },
+    snapping: false, // snapshots always use the plain front view
     pose: 0, // 0 = on the pipe (horizontal), 1 = upright
     palette: paletteFor({ breathRate: 12, pulse: 72 }),
     display: buildProfile([]),
@@ -187,6 +192,20 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     fps: 60,
   };
   applyPalette(S.palette);
+
+  const Q_HOME = new THREE.Quaternion();
+  const AX_X = new THREE.Vector3(1, 0, 0), AX_Y = new THREE.Vector3(0, 1, 0);
+  const _oq = new THREE.Quaternion(), _oc = new THREE.Vector3(), _od = new THREE.Vector3();
+  function orbitBy(yaw, pitch) {
+    const q = S.orbit.q;
+    q.premultiply(_oq.setFromAxisAngle(AX_Y, yaw));
+    q.premultiply(_oq.setFromAxisAngle(AX_X, pitch));
+    q.normalize();
+  }
+  function resetOrbit() {
+    const O = S.orbit;
+    O.q.identity(); O.vx = O.vy = 0; O.zoom = O.zoomTarget = 1; O.home = false;
+  }
 
   let viewW = 1, viewH = 1, aspect = 1, cssH = 1;
   function resize() {
@@ -440,7 +459,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   /** Render the vessel tightly framed (about 85% of the image height) on transparent bg. */
   function renderSnapshot(w = 400, h = 480) {
     w = Math.max(16, Math.min(2048, Math.round(w))); h = Math.max(16, Math.min(2048, Math.round(h)));
+    S.snapping = true;
     update(0);
+    S.snapping = false;
     scene.updateMatrixWorld(true);
     snapBox.setFromObject(vessel, true);
     snapBox.getCenter(tmpV);
@@ -510,6 +531,8 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     S.tintMix = 1;
     S.pose = 1;
     S.live.active = false;
+    S.hold = false;
+    resetOrbit();
     pipe.visible = false;
     snapFit = true;
     return r;
@@ -533,6 +556,8 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     if (rm) S.heat = S.heatTarget;
     S.tintMix = 0;
     S.frozen = false;
+    S.hold = false;
+    resetOrbit();
     pivot.add(pipe);
     pipe.visible = true;
     pipe.rotation.set(0, 0, 0);
@@ -599,14 +624,17 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     const upY = -(H * s) / 2 - 0.12;
     pivot.scale.setScalar(s);
     pivot.position.set(lerp(blowX, 0, pc), lerp(blowY, upY, p), 0);
-    pivot.rotation.z = lerp(-Math.PI / 2 + TILT, 0, p);
-    pivot.rotation.x = SHOW_TILT * pc * pc;
+    // set all three: the hand-held orbit below writes the quaternion directly
+    pivot.rotation.set(SHOW_TILT * pc * pc, 0, lerp(-Math.PI / 2 + TILT, 0, p));
     snapFit = false;
 
-    // spin on the pipe
-    const spinRate = rm ? 0 : S.mode === 'hot' ? (S.frozen ? 0.12 : 0.55) : S.mode === 'cutting' ? 0.35 : 0.18;
-    S.spin = damp(S.spin, spinRate, 2, dt);
-    spinner.rotation.y += S.spin * dt;
+    // spin on the pipe; while held, the hand turns it (see turn()). On release the
+    // flick speed eases back to the slow showcase turn, which reads as inertia.
+    if (!S.hold) {
+      const spinRate = rm ? 0 : S.mode === 'hot' ? (S.frozen ? 0.12 : 0.55) : S.mode === 'cutting' ? 0.35 : 0.18;
+      S.spin = damp(S.spin, spinRate, S.mode === 'cooled' ? 1.2 : 2, dt);
+      spinner.rotation.y += S.spin * dt;
+    }
     const sw = 1 + 0.035 * S.breathSwell;
     spinner.scale.set(sw, 1, sw);
 
@@ -656,6 +684,32 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     shadowMesh.position.set(pivot.position.x, pivot.position.y + 0.005, 0);
     shadowMesh.scale.set(R * S.fit.s * 3.0, R * S.fit.s * 3.0, 1);
 
+    // hand-held view (cooled only): turn and zoom about the vessel's middle
+    if (S.mode === 'cooled') {
+      const O = S.orbit;
+      if (!S.hold && (O.vx || O.vy)) {
+        orbitBy(O.vx * dt, O.vy * dt);
+        O.vx = Math.abs(O.vx) < 0.02 ? 0 : damp(O.vx, 0, 2.2, dt);
+        O.vy = Math.abs(O.vy) < 0.02 ? 0 : damp(O.vy, 0, 2.2, dt);
+      }
+      if (O.home) {
+        O.q.slerp(Q_HOME, rm ? 1 : 1 - Math.exp(-dt * 6));
+        O.zoomTarget = 1;
+        if (O.q.angleTo(Q_HOME) < 0.002) { O.q.identity(); O.home = false; }
+      }
+      O.zoom = rm ? O.zoomTarget : damp(O.zoom, O.zoomTarget, 10, dt);
+      const q = S.snapping ? Q_HOME : O.q, z = S.snapping ? 1 : O.zoom;
+      _oc.set(0, (H * s) / 2, 0).applyQuaternion(pivot.quaternion).add(pivot.position); // middle, world
+      pivot.quaternion.premultiply(q);
+      pivot.scale.setScalar(s * z);
+      _od.set(0, (H * s * z) / 2, 0).applyQuaternion(pivot.quaternion);
+      pivot.position.copy(_oc).sub(_od);
+      // the contact shadow only makes sense while it still stands on the shelf
+      const up = _od.set(0, 1, 0).applyQuaternion(q).y;
+      shadow.uniforms.uOpacity.value *= clamp((up - 0.9) / 0.1, 0, 1) * clamp(1 - Math.abs(z - 1) * 5, 0, 1);
+      shadowMesh.visible = shadow.uniforms.uOpacity.value > 0.001;
+    }
+
     // rare finish fades in with the palette while the glass cools
     const tm = S.tintMix;
     glass.uniforms.uFinishAmt.value = S.rare ? tm * tm * (3 - 2 * tm) : 0;
@@ -698,6 +752,40 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     renderer.dispose();
   }
 
+  // Drag to turn: only a finished (cooled) vessel can be handled. The hand turns
+  // it about the screen axes (a trackball), so it can be tipped right over to see
+  // the foot or the mouth. Its own slow spin keeps going on top.
+  function grab() {
+    if (S.mode !== 'cooled') return false;
+    S.hold = true;
+    S.orbit.vx = S.orbit.vy = 0;
+    S.orbit.home = false;
+    return true;
+  }
+  /** Turn by yaw radians about the screen's up axis and pitch radians about its side axis. */
+  function turn(yaw = 0, pitch = 0) {
+    if (!S.hold) return;
+    orbitBy(yaw, pitch);
+  }
+  /** Let go; vx, vy (rad/s) keep it turning for a moment. */
+  function release(vx = 0, vy = 0) {
+    if (!S.hold) return;
+    S.hold = false;
+    S.orbit.vx = rm ? 0 : clamp(vx, -10, 10);
+    S.orbit.vy = rm ? 0 : clamp(vy, -10, 10);
+  }
+  /** Zoom by a factor (wheel or keys); 0.75x to 1.45x. */
+  function zoomBy(f = 1) {
+    if (S.mode !== 'cooled') return;
+    S.orbit.zoomTarget = clamp(S.orbit.zoomTarget * f, 0.75, 1.45);
+  }
+  /** Ease back to the plain front view. */
+  function resetView() {
+    if (S.mode !== 'cooled') return;
+    S.orbit.vx = S.orbit.vy = 0;
+    S.orbit.home = true;
+  }
+
   function setReducedMotion(v) {
     rm = !!v;
     if (rm) particles.clear(); // reduced motion: no particles at all
@@ -720,7 +808,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
 
   return {
     setHeat, breath, commitBreath, heartbeat, setPalette, freeze, cut, snapshot, loadRecipe,
-    reset, dispose, setReducedMotion, getStats, sparks, embers, setFinish, setPattern,
+    reset, dispose, setReducedMotion, getStats, sparks, embers, setFinish, setPattern, grab, turn, release, zoomBy, resetView,
     _debug: { glass, renderer, scene, camera, halo, render: () => renderer.render(scene, camera), step: (dt = 0) => renderFrame(dt) },
   };
 }

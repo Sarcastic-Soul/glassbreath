@@ -26,7 +26,7 @@ const icon = (name) => {
  *   just before `shelf` when left out.
  * The shelf shows only when the store has getProgress() or setProgress() is called.
  */
-export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, store, onShare, shelfHead }) {
+export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, store, onShare, onInspect, shelfHead }) {
   let items = [];
   let progressState = null;
   let hasProgress = typeof store?.getProgress === 'function';
@@ -134,7 +134,19 @@ export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, sto
       const img = document.createElement('img');
       img.src = item.pngDataUrl;
       img.alt = `${meta.name ?? 'Glass'} vessel number ${number}`;
-      plate.append(img);
+      if (onInspect && item.recipe) {
+        // The picture opens the vessel large, in 3D, to turn by hand.
+        const look = document.createElement('button');
+        look.type = 'button';
+        look.className = 'look';
+        look.setAttribute('aria-label', `Turn ${meta.name ?? 'glass'} vessel number ${number} in 3D`);
+        look.append(img, el('span', 'look-tag'));
+        look.lastChild.append(icon('ph-cube'), 'Turn in 3D');
+        plate.append(look);
+        look.addEventListener('click', () => onInspect(item, { number, opener: look }));
+      } else {
+        plate.append(img);
+      }
       const h3 = document.createElement('h3');
       h3.textContent = `No. ${number} ${meta.name ?? ''}`.trim();
       const finish = finishName(item.recipe);

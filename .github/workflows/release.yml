@@ -9,7 +9,10 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # Docs-only pushes don't need new builds. (Path filters don't apply to tags.)
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**']
   workflow_dispatch:
 
 permissions:
@@ -40,8 +43,30 @@ jobs:
 
       - run: npm test
 
+      # electron-builder downloads Electron and its packaging tools from
+      # GitHub releases. Cache them, and retry when GitHub answers 504.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-dl-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-dl-${{ runner.os }}-
+
       - name: Package
-        run: node build.mjs && npx electron-builder ${{ matrix.target }} --publish never
+        shell: bash
+        run: |
+          node build.mjs
+          for try in 1 2 3; do
+            npx electron-builder ${{ matrix.target }} --publish never && exit 0
+            echo "electron-builder failed (try $try of 3), retrying in 30 s"
+            sleep 30
+          done
+          exit 1
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 

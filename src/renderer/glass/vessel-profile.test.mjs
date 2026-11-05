@@ -1,9 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildProfile, buildControls, wallProfile, makeRecipe, parseRecipe, normalizeBreath, normalizeFinish,
-  profileHeight, profileMaxR, PROFILE_POINTS, MAX_BANDS, LIMITS,
+  buildProfile, buildVessel, vesselForm, wallProfile, makeRecipe, parseRecipe, normalizeBreath, normalizeFinish,
+  profileHeight, profileMaxR, PROFILE_POINTS, FOOT_POINTS, LIP_POINTS, MAX_BANDS, LIMITS,
 } from './vessel-profile.js';
+import { breathFeatures } from './features.js';
+import { choosePattern, patternFor, normalizePattern, PATTERNS } from './pattern.js';
+import { SAMPLES, sampleRecipe } from './samples.js';
 import { paletteFor } from './palette.js';
 
 const rng = (seed) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
@@ -35,15 +38,46 @@ test('empty gather is a small closed blob', () => {
   assert.ok(profileHeight(p) > 0.3 && profileHeight(p) < 1.2);
 });
 
-test('bands grow monotonically toward the pipe', () => {
+test('each breath makes the gather and the finished vessel taller', () => {
   const breaths = randomBreaths(MAX_BANDS, 7);
-  let prevH = 0;
+  let prevHot = 0, prevDone = 0;
   for (let k = 0; k <= breaths.length; k++) {
-    const { controls, height } = buildControls(breaths.slice(0, k));
-    assert.ok(height > prevH - 1e-9, `height grows at ${k}`);
-    prevH = height;
-    for (let i = 1; i < controls.length; i++) assert.ok(controls[i][1] >= controls[i - 1][1], 'controls ordered');
+    const hot = profileHeight(buildProfile(breaths.slice(0, k)));
+    const done = profileHeight(buildProfile(breaths.slice(0, k), { finish: 1 }));
+    assert.ok(hot > prevHot - 1e-9, `hot height grows at ${k}`);
+    if (k > 0) assert.ok(done > prevDone - 1e-9, `finished height grows at ${k}`);
+    prevHot = hot; prevDone = done;
   }
+});
+
+test('finished vessel stands on a stepped foot and has a neck and flared lip', () => {
+  for (let s = 1; s < 20; s++) {
+    const { profile: p, form } = buildVessel(randomBreaths(3 + (s % 9), s), { finish: 1 });
+    const foot = p.slice(0, FOOT_POINTS);
+    const footR = Math.max(...foot.map((q) => q[0]));
+    const waist = p[FOOT_POINTS - 1][0];
+    assert.ok(waist < footR * 0.9, `seed ${s}: stem narrower than foot`);
+    assert.equal(p[1][1], 0, 'flat underside');
+    const body = p.slice(FOOT_POINTS);
+    const belly = Math.max(...body.map((q) => q[0]));
+    assert.ok(belly > footR * 1.4, `seed ${s}: belly wider than foot`);
+    const top = p[p.length - 1][0];
+    const neckMin = Math.min(...p.filter((q) => q[1] > form.yNeck0).map((q) => q[0]));
+    assert.ok(top > neckMin * 1.03, `seed ${s}: lip flares`);
+  }
+});
+
+test('breathing decides the form', () => {
+  const even = (n, b) => Array.from({ length: n }, () => ({ durationMs: 5000, inhaleMs: 2200, exhaleMs: 2800, ...b }));
+  // count -> height
+  assert.ok(profileHeight(buildProfile(even(10, {}), { finish: 1 })) > profileHeight(buildProfile(even(3, {}), { finish: 1 })) * 1.6);
+  // long exhales -> longer, slimmer neck
+  const short = vesselForm(even(8, { inhaleMs: 2500, exhaleMs: 2500 }));
+  const long = vesselForm(even(8, { inhaleMs: 1600, exhaleMs: 3400 }));
+  assert.ok(long.neckFrac > short.neckFrac + 0.08 && long.rN < short.rN);
+  // deepening -> widest point higher than easing off
+  const ramp = (a, b) => Array.from({ length: 8 }, (_, i) => ({ depth: a + ((b - a) * i) / 7, durationMs: 5000 }));
+  assert.ok(vesselForm(ramp(0.3, 0.9)).tb > vesselForm(ramp(0.9, 0.3)).tb + 0.3);
 });
 
 test('clamps hold for extreme and garbage input', () => {
@@ -65,7 +99,7 @@ test('profiles are smooth (bounded second difference)', () => {
     assertSane(p);
     for (let i = 1; i < p.length - 1; i++) {
       const d2 = Math.abs(p[i + 1][0] - 2 * p[i][0] + p[i - 1][0]);
-      assert.ok(d2 < 0.12, `seed ${s} point ${i} d2=${d2}`);
+      if (i > FOOT_POINTS) assert.ok(d2 < 0.06, `seed ${s} point ${i} d2=${d2}`); // body: no bumps
     }
   }
 });
@@ -89,8 +123,8 @@ test('live swell widens the current band, cut opens the mouth', () => {
 test('wall profile closes back to the axis inside the outer wall', () => {
   const outer = buildProfile(randomBreaths(9, 5), { finish: 1 });
   const w = wallProfile(outer);
-  assert.equal(w.length, outer.length * 2 + 2);
-  const inner = w.slice(outer.length + 2);
+  assert.equal(w.length, outer.length * 2 + LIP_POINTS);
+  const inner = w.slice(outer.length + LIP_POINTS);
   assert.equal(inner[inner.length - 1][0], 0);
   for (let i = 1; i < inner.length; i++) assert.ok(inner[i][1] <= inner[i - 1][1] + 1e-9, 'inner descends');
   for (const [r] of w) assert.ok(r >= 0);
@@ -133,6 +167,72 @@ test('recipe finish round-trips and is optional', () => {
   delete old.finish;
   assert.equal(parseRecipe(JSON.stringify(old)).finish, null);
   assert.equal(normalizeFinish(undefined), null);
+});
+
+test('pattern choice follows the breathing', () => {
+  const base = { n: 8, depth: 0.6, depthStd: 0.02, depthJitter: 0.02, trend: 0, exhaleRatio: 1.25, paceCV: 0.03, meanMs: 5000 };
+  assert.equal(choosePattern(base), 'thread');
+  assert.equal(choosePattern({ ...base, exhaleRatio: 1.8 }), 'filigrana');
+  assert.equal(choosePattern({ ...base, meanMs: 9500 }), 'filigrana');
+  assert.equal(choosePattern({ ...base, depthJitter: 0.2, depthStd: 0.2 }), 'feather');
+  assert.equal(choosePattern({ ...base, paceCV: 0.3 }), 'incalmo');
+  // both uneven: the one further past its threshold wins
+  assert.equal(choosePattern({ ...base, depthJitter: 0.3, paceCV: 0.22 }), 'feather');
+  assert.equal(choosePattern({ ...base, depthJitter: 0.15, paceCV: 0.5 }), 'incalmo');
+  // a steady deepening is a trend, not unevenness
+  assert.equal(choosePattern({ ...base, depthStd: 0.2, depthJitter: 0.02, trend: 0.6 }), 'thread');
+  assert.equal(choosePattern({ n: 0 }), 'plain');
+  assert.equal(choosePattern(null), 'plain');
+});
+
+test('pattern spec records breath timing and stays bounded', () => {
+  const breaths = [{ durationMs: 3000 }, { durationMs: 9000 }, { durationMs: 6000 }].map(normalizeBreath);
+  const { form } = buildVessel(breaths, { finish: 1 });
+  const p = patternFor(breaths, form);
+  assert.deepEqual(p.edges, [0, 0.1667, 0.6667, 1]);
+  assert.ok(p.region[0] < p.region[1] && p.region[1] < p.lipY && p.lipY < profileHeight(buildProfile(breaths, { finish: 1 })));
+  assert.equal(p.shifts.length, 3);
+  for (const t of PATTERNS) assert.equal(patternFor(breaths, form, t).type, t);
+  assert.deepEqual(normalizePattern(p), p, 'idempotent');
+  const junk = normalizePattern({ type: 'paisley', edges: [0.5, 'x'], width: 9, combs: 3, shifts: [5, NaN] }, 3);
+  assert.equal(junk.type, 'plain');
+  assert.deepEqual(junk.edges, [0, 1]);
+  assert.ok(junk.width <= 0.06 && junk.combs % 2 === 0);
+  assert.equal(normalizePattern(null, 3).lipY, 2.95);
+});
+
+test('recipe pattern round-trips; old recipes become plain with a lip wrap', () => {
+  const breaths = randomBreaths(7, 9);
+  const { profile, form } = buildVessel(breaths, { finish: 1 });
+  const pattern = patternFor(breaths, form, 'feather');
+  const recipe = makeRecipe({ profile, breaths, pattern, createdAt: '2026-11-05T00:00:00.000Z' });
+  assert.deepEqual(parseRecipe(JSON.stringify(recipe)), recipe);
+  assert.equal(recipe.pattern.type, 'feather');
+  // a version 1 recipe from before patterns, with the old 48-point profile
+  const old = { version: 1, profile: buildProfile(breaths, { finish: 1, points: 48 }), breaths, palette: null };
+  const back = parseRecipe(JSON.stringify(old));
+  assert.equal(back.profile.length, PROFILE_POINTS);
+  assert.equal(back.pattern.type, 'plain');
+  assert.ok(Math.abs(back.pattern.lipY - (profileHeight(back.profile) - 0.05)) < 1e-3);
+});
+
+test('sample sessions look like processor output and give varied vessels', () => {
+  assert.ok(SAMPLES.length >= 6 && SAMPLES.length <= 8);
+  const types = new Set(), tall = [];
+  for (const s of SAMPLES) {
+    assert.ok(s.id && s.name && s.breathRate > 3);
+    for (const b of s.breaths) {
+      for (const k of ['t', 'depth', 'durationMs', 'inhaleMs', 'exhaleMs']) assert.ok(Number.isFinite(b[k]), `${s.id}.${k}`);
+      assert.equal(b.inhaleMs + b.exhaleMs, b.durationMs);
+    }
+    const r = sampleRecipe(s);
+    assert.deepEqual(parseRecipe(JSON.stringify(r)), r);
+    types.add(r.pattern.type);
+    tall.push(profileHeight(r.profile) / (2 * profileMaxR(r.profile)));
+    assert.equal(r.pattern.type, choosePattern(breathFeatures(s.breaths)));
+  }
+  assert.ok(types.size >= 4, `pattern variety ${[...types]}`);
+  assert.ok(Math.max(...tall) / Math.min(...tall) > 2.5, 'bowls and tall vases');
 });
 
 test('normalizeBreath fills defaults', () => {

@@ -3,7 +3,7 @@
 // the glass module turns them into the vessel.
 
 import { createSignals } from './signals/index.js';
-import { createGlassStage, paletteFor } from './glass/index.js';
+import { createGlassStage, paletteFor, SAMPLES, sampleRecipe } from './glass/index.js';
 import { createTrace } from './ui/trace.js';
 import { createRack } from './ui/rack.js';
 import { vesselName, paceText } from './ui/names.js';
@@ -29,7 +29,9 @@ const els = {
   dataBtn: $('btn-data'), dataDialog: $('data-dialog'), consentError: $('consent-error'),
   glassCanvas: $('glass'), traceCanvas: $('trace'), preview: $('preview'), camTag: $('cam-tag'), hint: $('hint'),
   countMain: $('count-main'), countSub: $('count-sub'), heat: $('heat'), heatFill: $('heat-fill'), heatText: $('heat-text'),
-  cutHint: $('cut-hint'), orb: $('orb'), soundBtn: $('btn-sound'),
+  cutHint: $('cut-hint'), orb: $('orb'), soundBtn: $('btn-sound'), cam: document.querySelector('#stage .cam'), count: document.querySelector('#stage .count'),
+  openRackBtn: $('btn-open-rack'), homeBtn: $('btn-home'), rackBlowBtn: $('btn-rack-blow'), rackCount: $('rack-count'),
+  glassLayer: $('glass-layer'), showcaseCap: $('showcase-cap'), toast: $('toast'), leaveDialog: $('leave-dialog'), leaveTitle: $('leave-title'), leaveText: $('leave-text'),
   keyForm: $('key-form'), keyInput: $('key-input'), doneFinish: $('done-finish'), doneAwards: $('done-awards'), smileFill: $('smile-fill'), read: document.querySelector('#stage .read'), readRate: $('read-rate'), readPulse: $('read-pulse'),
   done: $('done'), doneName: $('done-name'), doneMeta: $('done-meta'), keepBtn: $('btn-keep'), againBtn: $('btn-again'), shareBtn: $('btn-share'),
   errorBanner: $('error-banner'), errorText: $('error-text'), retryBtn: $('btn-retry'),
@@ -72,20 +74,92 @@ const session = {
 };
 
 // ---------- screens ----------
+// Each screen shows only the header buttons that make sense there: no rack
+// while blowing, so a vessel in progress is never left behind by accident.
 function show(screen) {
   for (const s of ['consent', 'stage', 'rack']) els[s].hidden = s !== screen;
   els.body.dataset.screen = screen;
-  els.nav.hidden = screen === 'consent';
-  for (const b of els.nav.querySelectorAll('[data-go]')) b.classList.toggle('on', b.dataset.go === screen);
+  for (const b of els.nav.querySelectorAll('[data-on]')) b.hidden = !b.dataset.on.split(' ').includes(screen);
   if (screen === 'rack') rack.refresh();
+  if (screen === 'consent') showcase.start(); else showcase.stop();
 }
 
-els.nav.addEventListener('click', (e) => {
-  const go = e.target.closest('[data-go]')?.dataset.go;
-  if (!go) return;
-  if (go === 'stage' && session.phase === 'done') startNewVessel();
-  show(go);
-});
+els.openRackBtn.addEventListener('click', () => show('rack'));
+els.homeBtn.addEventListener('click', () => show('consent'));
+els.rackBlowBtn.addEventListener('click', () => { show('consent'); els.cameraBtn.focus({ preventScroll: true }); });
+
+// ---------- home showcase ----------
+// The home screen turns finished vessels on the same glass canvas: your own
+// recent ones first, topped up with vessels blown from sample breathing.
+const SHOWCASE_MS = 8000;
+const showcase = (() => {
+  let on = false, timer = 0, run = 0, i = 0, list = [];
+  async function load() {
+    let mine = [];
+    try { mine = (await bridge.listVessels()) ?? []; } catch (e) { console.error('[glassbreath] showcase list failed', e); }
+    els.rackCount.hidden = !mine.length;
+    els.rackCount.textContent = String(mine.length);
+    const own = mine.filter((v) => v.recipe).slice(0, 6).map((v, n) => ({
+      recipe: v.recipe, cap: `your No. ${mine.length - n}, ${String(v.recipe.meta?.name || 'glass').toLowerCase()}`,
+    }));
+    const samples = SAMPLES.map((s) => ({ recipe: sampleRecipe(s), cap: `blown from sample breathing: ${s.name.toLowerCase()}` }));
+    list = own.length >= 3 ? own : [...own, ...samples];
+  }
+  function next(r) {
+    if (!on || r !== run || !list.length) return;
+    const item = list[i++ % list.length];
+    els.glassLayer.classList.add('fade');
+    setTimeout(() => {
+      if (!on || r !== run) return;
+      try { glass.loadRecipe(item.recipe); } catch (e) { console.error('[glassbreath] showcase load failed', e); }
+      els.showcaseCap.textContent = item.cap;
+      els.glassLayer.classList.remove('fade');
+    }, reducedMotion ? 0 : 420);
+    timer = setTimeout(() => next(r), SHOWCASE_MS);
+  }
+  async function start() {
+    if (on) return;
+    on = true;
+    const r = ++run;
+    await load();
+    i = 0;
+    next(r);
+  }
+  function stop() {
+    on = false;
+    run++;
+    clearTimeout(timer);
+    els.glassLayer.classList.remove('fade');
+  }
+  return { start, stop };
+})();
+
+// ---------- leaving a session ----------
+// Ask first when leaving would throw away glass that is not on the rack yet.
+function askLeave(again = false) {
+  const p = session.phase;
+  const unsaved = p === 'done' && !session.kept;
+  const losing = (p === 'blowing' && session.breaths > 0) || p === 'cooling' || unsaved;
+  if (!losing) return Promise.resolve(true);
+  els.leaveTitle.textContent = unsaved ? (again ? 'Start over without keeping?' : 'Leave without keeping?') : 'Stop this vessel?';
+  els.leaveText.textContent = unsaved ? 'This vessel is not on your rack yet.' : 'The glass you have blown so far will be lost.';
+  const [stay, go] = els.leaveDialog.querySelectorAll('button');
+  stay.textContent = unsaved ? 'Go back' : 'Keep blowing';
+  go.textContent = unsaved ? (again ? 'Start over' : 'Leave') : 'Stop';
+  els.leaveDialog.returnValue = '';
+  els.leaveDialog.showModal();
+  return new Promise((resolve) => {
+    els.leaveDialog.addEventListener('close', () => resolve(els.leaveDialog.returnValue === 'ok'), { once: true });
+  });
+}
+
+let toastTimer = 0;
+function toast(text) {
+  els.toast.textContent = text;
+  els.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { els.toast.hidden = true; }, 2600);
+}
 
 // ---------- consent ----------
 function updateTeleText() {
@@ -97,7 +171,7 @@ els.teleToggle.addEventListener('change', updateTeleText);
 els.dataBtn.addEventListener('click', () => els.dataDialog.showModal());
 els.cameraBtn.addEventListener('click', () => begin('camera'));
 els.replayBtn.addEventListener('click', () => begin('replay'));
-els.stopBtn.addEventListener('click', () => end());
+els.stopBtn.addEventListener('click', async () => { if (await askLeave()) end(); });
 
 async function pickRecording() {
   // Prefer a real recorded session if one is bundled, else the synthetic one.
@@ -130,9 +204,7 @@ async function begin(kind) {
   // A recording has no video, so drop the empty preview box.
   els.preview.hidden = kind !== 'camera';
   els.camTag.hidden = kind !== 'camera';
-  els.stopBtn.innerHTML = kind === 'camera'
-    ? '<i class="ph ph-power"></i>Turn off camera'
-    : '<i class="ph ph-stop"></i>Stop recording';
+  els.cam.classList.toggle('nocam', kind !== 'camera');
   resetSession();
   session.phase = 'warming';
   sound.furnace(true);
@@ -142,7 +214,7 @@ async function begin(kind) {
   await signals.start();
 }
 
-async function end() {
+async function end(next = 'consent') {
   const s = signals;
   signals = null;
   if (s) {
@@ -156,7 +228,7 @@ async function end() {
   glass.reset();
   trace.clear();
   hideError();
-  show('consent');
+  show(next);
 }
 
 // ---------- signals ----------
@@ -364,6 +436,7 @@ async function cutGlass() {
   els.done.hidden = false;
   awardAchievements();
   els.keepBtn.disabled = false;
+  setKeepButton(false);
   els.keepBtn.focus({ preventScroll: true });
   render();
 }
@@ -394,8 +467,15 @@ async function awardAchievements() {
   } catch (e) { console.error('[glassbreath] achievements failed', e); }
 }
 
+function setKeepButton(kept) {
+  els.keepBtn.querySelector('i').className = `ph ${kept ? 'ph-arrow-right' : 'ph-archive-box'}`;
+  els.keepBtn.querySelector('span').textContent = kept ? 'See it on the rack' : 'Keep on the rack';
+}
+
 els.keepBtn.addEventListener('click', async () => {
-  if (session.phase !== 'done' || session.kept) return;
+  if (session.phase !== 'done') return;
+  // Already kept: the same button walks to the rack and turns the camera off.
+  if (session.kept) { end('rack'); return; }
   els.keepBtn.disabled = true;
   try {
     const snap = glass.snapshot();
@@ -415,14 +495,17 @@ els.keepBtn.addEventListener('click', async () => {
     };
     await bridge.saveVessel({ pngDataUrl: snap.pngDataUrl, recipe });
     session.kept = true;
-    show('rack');
+    setKeepButton(true);
+    els.keepBtn.disabled = false;
+    toast('Kept on your rack');
+    render();
   } catch (e) {
     console.error('[glassbreath] save failed', e);
     els.keepBtn.disabled = false;
     showError('Could not save the vessel. Is the disk full?', false);
   }
 });
-els.againBtn.addEventListener('click', () => startNewVessel());
+els.againBtn.addEventListener('click', async () => { if (await askLeave(true)) startNewVessel(); });
 els.shareBtn.addEventListener('click', () => {
   if (session.phase !== 'done') return;
   const snap = glass.snapshot();
@@ -476,6 +559,16 @@ function render() {
     els.countSub.textContent = 'one vessel';
   }
   els.heat.hidden = p !== 'warming';
+  if (els.body.dataset.phase !== p) els.body.dataset.phase = p;
+  els.count.hidden = p === 'done';
+  els.cam.hidden = p === 'cooling' || p === 'done';
+  const finished = p === 'done' && session.kept;
+  const stopLabel = finished ? 'Finish' : p === 'done' ? 'Leave' : 'Stop';
+  if (els.stopBtn.dataset.label !== stopLabel) {
+    els.stopBtn.dataset.label = stopLabel;
+    els.stopBtn.querySelector('i').className = `ph ${finished ? 'ph-check' : 'ph-x'}`;
+    els.stopBtn.querySelector('span').textContent = stopLabel;
+  }
   els.read.hidden = p === 'cooling' || p === 'done';
 
   els.cutHint.hidden = !(p === 'blowing' && session.breaths >= MIN_BREATHS_TO_CUT);

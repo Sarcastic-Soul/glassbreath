@@ -10,21 +10,23 @@
 <body data-screen="consent" class="booting">
   <div class="boot" aria-hidden="true"><span class="boot-ember"></span></div>
 
+  <!-- One glass canvas for every screen: a turning showcase on home, the hot gather on the stage. -->
+  <div class="glass-layer" id="glass-layer"><canvas id="glass" aria-label="Glass vessel"></canvas></div>
+
   <header class="bar">
     <span class="mark">Glassbreath</span>
     <span class="source" id="source-badge" hidden><i class="ph ph-record"></i><span id="source-label">Live camera</span></span>
-    <nav class="nav" id="nav" hidden>
-      <button type="button" data-go="stage" class="on">Blow</button>
-      <button type="button" data-go="rack">Cooling rack</button>
+    <nav class="nav" id="nav">
+      <button type="button" id="btn-open-rack" class="navbtn" data-on="consent"><i class="ph ph-archive-box" aria-hidden="true"></i>Your rack<span class="pill" id="rack-count" hidden></span></button>
+      <button type="button" id="btn-home" class="navbtn" data-on="rack"><i class="ph ph-arrow-left" aria-hidden="true"></i>Home</button>
       <button type="button" id="btn-sound" class="sound" aria-pressed="true" aria-label="Sound on" title="Sound on"><i class="ph ph-speaker-high" aria-hidden="true"></i></button>
-      <button type="button" id="btn-stop" class="stop"><i class="ph ph-power"></i>Turn off camera</button>
+      <button type="button" id="btn-stop" class="stop" data-on="stage"><i class="ph ph-x" aria-hidden="true"></i><span>Stop</span></button>
     </nav>
   </header>
 
   <!-- Consent -->
   <main class="screen" id="consent" aria-labelledby="consent-title">
-    <div class="furnace" aria-hidden="true"><div class="furnace-mouth"></div></div>
-    <p class="note hand furnace-note" aria-hidden="true">the furnace warms up in about 30 seconds</p>
+    <p class="hand showcase-cap" id="showcase-cap" aria-live="off"></p>
 
     <div class="consent-copy">
       <h1 id="consent-title">Blow glass<br>with your breath</h1>
@@ -62,8 +64,6 @@
 
   <!-- Blowing stage -->
   <main class="screen" id="stage" hidden aria-label="Glass blowing">
-    <canvas id="glass" aria-label="Your glass vessel"></canvas>
-
     <div class="count" aria-live="polite">
       <b id="count-main">Warming up</b>
       <span id="count-sub">sit still</span>
@@ -100,10 +100,10 @@
       <p class="done-meta" id="done-meta"></p>
       <p class="done-finish" id="done-finish" hidden><i class="ph ph-sparkle" aria-hidden="true"></i><span></span></p>
       <ul class="done-awards" id="done-awards" hidden aria-label="New achievements"></ul>
-      <div class="actions">
-        <button type="button" class="btn primary" id="btn-keep"><i class="ph ph-archive-box"></i>Keep on the rack</button>
-        <button type="button" class="btn secondary" id="btn-share"><i class="ph ph-share-network"></i>Share</button>
-        <button type="button" class="btn secondary" id="btn-again"><i class="ph ph-arrow-counter-clockwise"></i>Blow another</button>
+      <div class="done-actions">
+        <button type="button" class="btn primary wide" id="btn-keep"><i class="ph ph-archive-box"></i><span>Keep on the rack</span></button>
+        <button type="button" class="btn secondary small" id="btn-share"><i class="ph ph-share-network"></i>Share</button>
+        <button type="button" class="btn secondary small" id="btn-again"><i class="ph ph-arrow-counter-clockwise"></i>Blow another</button>
       </div>
       <p class="done-note"><i class="ph ph-lock-simple" aria-hidden="true"></i> Saved on this computer only. No video.</p>
     </div>
@@ -119,11 +119,14 @@
         <h2 id="rack-title">Cooling rack</h2>
         <p class="sub" id="rack-sub">Saved on this computer only.</p>
       </div>
-      <button type="button" class="btn secondary" id="btn-delete-all"><i class="ph ph-trash"></i>Delete all</button>
+      <button type="button" class="btn primary small" id="btn-rack-blow"><i class="ph ph-wind"></i>Blow a vessel</button>
     </div>
     <ol class="shelf" id="shelf"></ol>
     <p class="empty" id="rack-empty" hidden><i class="ph ph-archive-box" aria-hidden="true"></i> Empty rack. Blow a vessel and keep it.</p>
+    <div class="rack-foot"><button type="button" class="linkish danger" id="btn-delete-all"><i class="ph ph-trash" aria-hidden="true"></i> Delete all vessels</button></div>
   </main>
+
+  <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
 
   <div class="error-banner" id="error-banner" role="alert" hidden>
     <span id="error-text"></span>
@@ -133,7 +136,7 @@
   <dialog id="data-dialog" aria-labelledby="data-title">
     <h2 id="data-title">How your data is handled</h2>
     <ul>
-      <li><b>Camera:</b> only on after you press “Turn on camera”, and off when you press “Turn off camera” or close the app. The camera light shows when it is on.</li>
+      <li><b>Camera:</b> only on after you press “Turn on camera”, and off when you press “Stop”, “Finish” or close the app. The camera light shows when it is on.</li>
       <li><b>Where processing happens:</b> the Presage SmartSpectra SDK measures breathing, pulse, blinks and expressions on this computer. Video frames are never uploaded or saved.</li>
       <li><b>Network:</b> the SDK contacts Presage only to check the API key.</li>
       <li><b>Usage counts:</b> off by default. If you turn it on, the SDK sends Presage one anonymous summary per session (SDK version, OS, frame counts, error codes). Never video, never readings.</li>
@@ -172,6 +175,15 @@
     <form method="dialog" class="actions">
       <button class="btn secondary small" value="cancel">Keep them</button>
       <button class="btn danger small" value="ok">Delete all</button>
+    </form>
+  </dialog>
+
+  <dialog id="leave-dialog" aria-labelledby="leave-title">
+    <h2 id="leave-title">Stop this vessel?</h2>
+    <p id="leave-text">The glass you have blown so far will be lost.</p>
+    <form method="dialog" class="actions">
+      <button class="btn secondary small" value="cancel">Keep blowing</button>
+      <button class="btn danger small" value="ok">Stop</button>
     </form>
   </dialog>
 

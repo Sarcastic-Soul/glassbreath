@@ -1,5 +1,5 @@
 // Glass playground: drive the glass stage with synthetic breathing.
-import { createGlassStage } from '../src/renderer/glass/index.js';
+import { createGlassStage, SAMPLES, sampleRecipe } from '../src/renderer/glass/index.js';
 
 const $ = (id) => document.getElementById(id);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches || location.hash.includes('reduced');
@@ -22,10 +22,11 @@ $('freeze').addEventListener('change', (e) => glass.freeze(e.target.checked));
 $('beat').addEventListener('click', () => glass.heartbeat(1));
 $('cut').addEventListener('click', async () => { await glass.cut(); $('stats').dataset.cut = 'done'; });
 // reset clears the finish and embers, so re-apply what the controls say
-const applyFx = () => { glass.setFinish($('finish').value || null); glass.embers($('embers').checked); };
-$('reset').addEventListener('click', () => { glass.reset(); applyFx(); sim.cycleStart = performance.now(); });
+const applyFx = () => { glass.setFinish($('finish').value || null); glass.setPattern($('pattern').value || null); glass.embers($('embers').checked); };
+$('reset').addEventListener('click', () => { blowId++; glass.reset(); applyFx(); sim.cycleStart = performance.now(); });
 $('embers').addEventListener('change', (e) => glass.embers(e.target.checked));
 $('finish').addEventListener('change', (e) => glass.setFinish(e.target.value || null));
+$('pattern').addEventListener('change', (e) => glass.setPattern(e.target.value || null));
 bind('sparkK', () => {});
 const sparks = () => glass.sparks(Number($('sparkK').value));
 $('sparks').addEventListener('click', sparks);
@@ -86,3 +87,64 @@ setInterval(() => {
   const s = glass.getStats();
   $('stats').textContent = `${s.fps} fps · ${s.calls} calls · ${s.triangles} tris · ${s.mode} · ${s.breaths} breaths · ${s.particles} fx`;
 }, 500);
+
+// --- sample sessions -------------------------------------------------------------
+for (const smp of SAMPLES) $('sample').append(new Option(`${smp.name} (${smp.breaths.length})`, smp.id));
+const pick = () => SAMPLES.find((x) => x.id === $('sample').value) || SAMPLES[0];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Blow a sample breath by breath (sped up 4x), then cut it. Palette slider overrides. */
+let blowId = 0;
+async function blowSample(smp = pick(), { speed = 4 } = {}) {
+  const id = ++blowId; // a newer blow cancels this one
+  $('sim').checked = false; sim.on = false;
+  glass.reset(); applyFx();
+  for (const b of smp.breaths) {
+    const dur = b.durationMs / speed, inh = b.inhaleMs / speed, t0 = performance.now();
+    for (let el = 0; el < dur; el = performance.now() - t0) {
+      const u = el < inh ? 0.5 - 0.5 * Math.cos(Math.PI * el / inh) : 0.5 + 0.5 * Math.cos(Math.PI * (el - inh) / (dur - inh));
+      glass.breath({ chest: -1 + 2 * u * b.depth, depth: b.depth });
+      await wait(33);
+      if (id !== blowId) return;
+    }
+    glass.commitBreath(b);
+    if ($('autoSparks').checked) sparks();
+  }
+  glass.setPalette({ breathRate: smp.breathRate, pulse: Number($('pPulse').value) });
+  await glass.cut();
+}
+$('blow').addEventListener('click', () => blowSample());
+
+/**
+ * Render every sample as a finished vessel. Returns { id: pngDataUrl, sheet: pngDataUrl }.
+ * opts: { pattern, finish, width, height, pulse }
+ */
+async function gallery({ pattern = $('pattern').value || null, finish = $('finish').value || null, width = 360, height = 480, pulse = 70 } = {}) {
+  blowId++;
+  const out = {}, imgs = [];
+  for (const smp of SAMPLES) {
+    glass.loadRecipe(sampleRecipe(smp, { pattern, finish, pulse }));
+    const { pngDataUrl, recipe } = glass.snapshot({ width, height });
+    out[smp.id] = pngDataUrl;
+    const img = new Image();
+    img.src = pngDataUrl;
+    await img.decode();
+    imgs.push({ img, label: `${smp.name}  ·  ${recipe.pattern.type}` });
+  }
+  const cols = 4, rows = Math.ceil(imgs.length / cols), lab = 30;
+  const c = document.createElement('canvas');
+  c.width = cols * width; c.height = rows * (height + lab);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#17120f'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.font = '15px system-ui, sans-serif'; ctx.fillStyle = '#cfc3b5'; ctx.textAlign = 'center';
+  imgs.forEach(({ img, label }, i) => {
+    const x = (i % cols) * width, y = Math.floor(i / cols) * (height + lab);
+    ctx.drawImage(img, x, y);
+    ctx.fillText(label, x + width / 2, y + height + 20);
+  });
+  out.sheet = c.toDataURL('image/png');
+  $('shot').src = out.sheet; $('shot').hidden = false;
+  return out;
+}
+$('gallery').addEventListener('click', () => gallery());
+window.__samples = { SAMPLES, sampleRecipe, blowSample, gallery };

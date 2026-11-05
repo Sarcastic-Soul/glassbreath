@@ -20,7 +20,7 @@ export function createStudioEnvironment(renderer) {
   add(0.7, 9, [7, 0.5, -1], 0xe8f0ff, 7); // tall rim strip, right
   add(0.5, 7, [-7, 0, -3], 0xffffff, 3); // thin back-left strip
   add(16, 9, [0, 0.5, -10], 0x9a958e, 0.05); // dim backdrop
-  add(16, 0.7, [0, -2.4, -9], 0xfff1e0, 0.8); // low horizon glow behind: lensed by the glass
+  add(16, 0.7, [0, -2.4, -9], 0xfff1e0, 0.5); // low horizon glow behind: lensed by the glass
   add(8, 8, [0, 9, 0], 0xfff8f0, 0.9); // overhead
   add(10, 4, [0, -7, 3], 0xff8a3a, 0.5); // faint warm bounce from the furnace floor
 

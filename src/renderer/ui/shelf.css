@@ -11,7 +11,7 @@
   gap: 20px 36px;
   align-items: start;
 }
-.shop-shelf + .shelf { margin-top: 44px; }
+.shelf ~ .shop-shelf { margin-top: 64px; }
 
 .shop-kicker {
   font-family: var(--hand); font-size: 21px; line-height: 1.2; color: var(--chalk);

@@ -2,11 +2,12 @@
 // (see build-notes/CONTRACT.md).
 import * as THREE from 'three';
 import {
-  buildProfile, wallProfile, profileHeight, profileMaxR, makeRecipe, parseRecipe,
-  normalizeBreath, normalizeFinish, PROFILE_POINTS,
+  buildProfile, buildVessel, wallProfile, profileHeight, profileMaxR, makeRecipe, parseRecipe,
+  normalizeBreath, normalizeFinish, PROFILE_POINTS, LIP_POINTS,
 } from './vessel-profile.js';
+import { patternFor, PATTERNS } from './pattern.js';
 import { createParticles, KIND } from './particles.js';
-import { paletteFor } from './palette.js';
+import { paletteFor, hslToHex } from './palette.js';
 import { createLathe, updateLathe } from './lathe.js';
 import { createStudioEnvironment } from './env.js';
 import {
@@ -27,7 +28,10 @@ const FOV = 26;
 const CAM = new THREE.Vector3(0, 1.9, 10);
 const TILT = 0.05; // pipe angled slightly up toward the gaffer
 const CUT_MS = 4000;
-const WALL_POINTS = PROFILE_POINTS * 2 + 2;
+const WALL_POINTS = PROFILE_POINTS * 2 + LIP_POINTS;
+const PATTERN_TYPE = { plain: 0, thread: 1, feather: 2, filigrana: 3, incalmo: 4 };
+const HOT_FLOOR = 0.12; // inside floor height of the gather
+const SHOW_TILT = 0.08; // cooled vessel leans a touch toward the camera to show its mouth
 const FINISH_TYPE = { gold: 1, crackle: 2, opal: 3 };
 const EMBER_RATE = 3; // per second
 const STEAM_RATE = 6; // puffs per second while the glass cools
@@ -72,6 +76,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   const glass = createGlassMaterial();
   glass.material.envMap = envRT.texture; // explicit, so envMapIntensity is honoured
   glass.material.envMapIntensity = 1;
+  glass.uniforms.uOuterV.value = (PROFILE_POINTS - 0.5) / (WALL_POINTS - 1);
   const vessel = new THREE.Mesh(geometry, glass.material);
   vessel.frustumCulled = false;
   spinner.add(vessel);
@@ -119,6 +124,36 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   const HEAT_FLOOR = 0.32;
   const hotHeat = (v) => HEAT_FLOOR + (1 - HEAT_FLOOR) * v;
 
+  // Push a pattern spec into the glass uniforms, with colours from the palette.
+  const clamp01 = (v) => clamp(v, 0, 1);
+  function applyPattern() {
+    const u = glass.uniforms, P = S.pattern, pal = S.palette;
+    if (!P) { u.uPatType.value = 0; u.uLipY.value = 99; return; }
+    u.uPatType.value = PATTERN_TYPE[P.type] ?? 0;
+    u.uBandN.value = Math.max(1, P.edges.length - 1);
+    u.uEdges.value.fill(1);
+    P.edges.forEach((e, i) => { if (i < u.uEdges.value.length) u.uEdges.value[i] = e; });
+    u.uRegion.value.set(P.region[0], P.region[1]);
+    u.uLipY.value = P.lipY;
+    u.uPat.value.set(P.width, P.amp, P.type === 'feather' ? P.combs : P.count, P.twist);
+    const hue = pal.hue ?? 170, sat = pal.sat ?? 0.35, light = pal.light ?? 0.5;
+    for (let k = 0; k < u.uBandAtt.value.length; k++) {
+      const sh = P.shifts[k] ?? 0;
+      const h = hue + 12 * sh, sa = clamp01(sat * (1.15 + 0.4 * Math.max(0, -sh) + 0.2 * Math.max(0, sh))), l = clamp(light - 0.13 * sh, 0.2, 0.75);
+      u.uBandAtt.value[k].set(hslToHex(h, clamp01(sa + 0.06), clamp(l + 0.28, 0, 0.86)));
+      u.uBandTint.value[k].set(hslToHex(h, sa, l));
+    }
+    const lip = hslToHex(hue + 8, clamp01(sat + 0.25), 0.2);
+    u.uLipCol.value.set(lip);
+    u.uThreadCol.value.set(P.tone === 'dark' && P.type !== 'filigrana' ? hslToHex(hue + 8, clamp01(sat + 0.25), 0.26) : 0xf2efe6);
+  }
+  function choosePatternNow() {
+    const v = buildVessel(S.breaths, { finish: 1 });
+    S.pattern = patternFor(S.breaths, v.form, S.patternType);
+    S.floorY = v.form.y0 + 0.05;
+    applyPattern();
+  }
+
   // ---- state ----
   const S = {
     mode: 'hot', // 'hot' | 'cutting' | 'cooled'
@@ -131,6 +166,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     tintMix: 0,
     finish: 0,
     rare: null, // rare surface finish: null | 'gold' | 'crackle' | 'opal'
+    patternType: null, // pattern override (playground); null = chosen from breathing
+    pattern: null, // pattern spec of the finished vessel (see pattern.js)
+    floorY: HOT_FLOOR, // inside floor height of the finished vessel (solid foot below)
     embers: false,
     emberAcc: 0,
     steamAcc: 0,
@@ -217,7 +255,15 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   function setPalette({ breathRate, pulse } = {}) {
     S.palette = paletteFor({ breathRate, pulse });
     applyPalette(S.palette);
+    applyPattern();
     return S.palette;
+  }
+
+  /** Pattern override: one of PATTERNS, or null to let the breathing choose. */
+  function setPattern(name) {
+    S.patternType = PATTERNS.includes(name) ? name : null;
+    if (S.mode !== 'hot' && S.breaths.length) choosePatternNow();
+    return S.patternType;
   }
 
   // particles ------------------------------------------------------------------
@@ -325,6 +371,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     scene.attach(pipe);
     const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(pipe.quaternion).normalize();
     S.cut = { t: 0, start: performance.now(), resolve, promise, pipeStart: pipe.position.clone(), pipeDir: dir, heat0: S.heat };
+    choosePatternNow();
     heartbeat(0.8);
     S.steamAcc = 0;
     if (rm) finishCut();
@@ -439,7 +486,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
   function snapshot(opts = {}) {
     const pngDataUrl = renderSnapshot(opts.width, opts.height);
     const profile = S.finalProfile || buildProfile(S.breaths, { finish: S.finish });
-    const recipe = makeRecipe({ profile, palette: S.palette, breaths: S.breaths, finish: S.rare });
+    const recipe = makeRecipe({ profile, palette: S.palette, breaths: S.breaths, finish: S.rare, pattern: S.pattern });
     return { pngDataUrl, recipe };
   }
 
@@ -450,6 +497,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     S.palette = r.palette && r.palette.attenuation ? { ...paletteFor(r.palette), ...r.palette } : paletteFor(r.palette || {});
     applyPalette(S.palette);
     setFinish(r.finish);
+    S.pattern = r.pattern;
+    S.floorY = clamp(r.pattern.region[0] + 0.03, HOT_FLOOR, 0.4);
+    applyPattern();
     particles.clear();
     S.embers = false;
     S.finalProfile = r.profile;
@@ -472,6 +522,9 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     S.finalProfile = null;
     S.finish = 0;
     setFinish(null);
+    S.pattern = null;
+    S.floorY = HOT_FLOOR;
+    applyPattern();
     particles.clear();
     S.embers = false;
     S.pose = 0;
@@ -489,7 +542,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
 
   // frame ---------------------------------------------------------------------
   let snapFit = true;
-  let wall = wallProfile(S.display);
+  let wall = wallProfile(S.display, { base: HOT_FLOOR });
 
   function update(dt) {
     S.time += rm ? 0 : dt;
@@ -531,7 +584,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
       S.display[i][0] += (target[i][0] - S.display[i][0]) * k;
       S.display[i][1] += (target[i][1] - S.display[i][1]) * k;
     }
-    wall = wallProfile(S.display);
+    wall = wallProfile(S.display, { base: lerp(HOT_FLOOR, S.floorY, S.finish), wall: lerp(0.06, 0.04, S.finish) });
     updateLathe(geometry, wall, 0.006);
     const H = profileHeight(S.display);
     const R = Math.max(0.2, profileMaxR(S.display));
@@ -547,6 +600,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     pivot.scale.setScalar(s);
     pivot.position.set(lerp(blowX, 0, pc), lerp(blowY, upY, p), 0);
     pivot.rotation.z = lerp(-Math.PI / 2 + TILT, 0, p);
+    pivot.rotation.x = SHOW_TILT * pc * pc;
     snapFit = false;
 
     // spin on the pipe
@@ -605,6 +659,7 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
     // rare finish fades in with the palette while the glass cools
     const tm = S.tintMix;
     glass.uniforms.uFinishAmt.value = S.rare ? tm * tm * (3 - 2 * tm) : 0;
+    glass.uniforms.uPatAmt.value = S.pattern ? tm * tm * (3 - 2 * tm) : 0;
 
     if (S.embers && !rm && S.mode === 'hot') {
       S.emberAcc += dt * EMBER_RATE;
@@ -659,12 +714,13 @@ export function createGlassStage(canvas, { reducedMotion = false } = {}) {
       frozen: S.frozen,
       particles: particles.count(),
       finish: S.rare,
+      pattern: S.pattern?.type ?? null,
     };
   }
 
   return {
     setHeat, breath, commitBreath, heartbeat, setPalette, freeze, cut, snapshot, loadRecipe,
-    reset, dispose, setReducedMotion, getStats, sparks, embers, setFinish,
+    reset, dispose, setReducedMotion, getStats, sparks, embers, setFinish, setPattern,
     _debug: { glass, renderer, scene, camera, halo, render: () => renderer.render(scene, camera), step: (dt = 0) => renderFrame(dt) },
   };
 }

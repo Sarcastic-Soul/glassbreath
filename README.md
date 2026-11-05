@@ -4,6 +4,8 @@ Blow a glass vessel with your own breathing.
 
 Glassbreath is a desktop app (Electron) that watches your chest rise and fall through the webcam, using the [Presage SmartSpectra SDK](https://physiology.presagetech.com/). Each slow breath adds a band to a glowing, molten glass vessel on the end of a blowpipe. A deep breath makes a wide band, a short one makes a narrow neck. When you like the shape, smile (or press Space) to cut it off the pipe. It cools into a colour picked from your breathing pace, and you can keep it on the "Cooling rack", a small gallery saved on your computer.
 
+Your breathing decides the whole finished vessel. Deep breaths give a fuller belly, more breaths make it taller, deepening or easing breaths move the widest point up or down, and long out-breaths give a longer neck. The pattern comes from your breathing too: steady breaths get a white thread wrapped once per breath or a fine Venetian-style lattice, uneven depth gets combed feather waves, and a varied pace gets coloured bands, one per breath. The home screen turns your recent vessels, plus a few blown from sample breathing.
+
 Press "Share" to make a picture card of your vessel (name, breath count, and your breathing pace only if you switch it on). You can copy it, save it, or open a post on X or Bluesky with the picture ready to paste.
 
 Along the way there are sounds made in code (furnace roar, a glass tink for each band, a chime when you cut, cooling crackle), sparks and steam, about one vessel in eight cooling with a rare finish (gold fleck, crackle or opal), and calm achievements such as "Slow breather" or collecting all six glass colours. None of them reward breathing faster.
@@ -82,7 +84,7 @@ The consent screen has a "Use the sample recording" button. It plays back a reco
 
 ## Privacy and data handling
 
-- **Consent first.** The camera only turns on after you press "Turn on camera". "Turn off camera" stops it, and so does closing the app.
+- **Consent first.** The camera only turns on after you press "Turn on camera". "Stop" (or "Finish" once a vessel is kept) turns it off, and so does closing the app.
 - **On this computer.** The SmartSpectra SDK processes video frames locally. Frames are never uploaded or saved.
 - **Network.** The SDK contacts Presage to check the API key.
 - **Usage counts are off by default.** The consent screen has a switch for the SDK's anonymous telemetry (one summary per session: SDK version, OS, frame counts, error codes; never video or readings). It stays off unless you turn it on.

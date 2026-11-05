@@ -1,7 +1,7 @@
 // Materials: the glass itself (patched MeshPhysicalMaterial), a silhouette heat glow,
 // a contact shadow and the steel blowpipe.
 import * as THREE from 'three';
-import { SNOISE, MOLTEN_RAMP, FINISH } from './shaders.js';
+import { SNOISE, MOLTEN_RAMP, FINISH, PATTERN, PATTERN_BANDS } from './shaders.js';
 
 /**
  * Glass that runs from molten (emissive, opaque-ish) to cooled clear coloured glass.
@@ -23,6 +23,19 @@ export function createGlassMaterial() {
     uRim: { value: new THREE.Color(0xc8f0e6) },
     uFinishType: { value: 0 }, // 0 none, 1 gold, 2 crackle, 3 opal
     uFinishAmt: { value: 0 }, // fades in as the glass cools
+    // breath pattern (see pattern.js and stage.applyPattern)
+    uPatType: { value: 0 }, // 0 plain, 1 thread, 2 feather, 3 filigrana, 4 incalmo
+    uPatAmt: { value: 0 },
+    uBandN: { value: 1 },
+    uLipY: { value: 99 },
+    uOuterV: { value: 0.5 }, // uv.y below this is the outer wall
+    uEdges: { value: new Float32Array(PATTERN_BANDS + 1) },
+    uRegion: { value: new THREE.Vector2(0, 1) },
+    uPat: { value: new THREE.Vector4(0.02, 0.5, 6, 0.4) },
+    uBandAtt: { value: Array.from({ length: PATTERN_BANDS }, () => new THREE.Color(0x7fd6c4)) },
+    uBandTint: { value: Array.from({ length: PATTERN_BANDS }, () => new THREE.Color(0x58b8a8)) },
+    uThreadCol: { value: new THREE.Color(0xeeeeea) },
+    uLipCol: { value: new THREE.Color(0x1a2a2a) },
   };
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -45,19 +58,22 @@ export function createGlassMaterial() {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGbObj;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGbObj = position;');
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGbObj;\nvarying float vGbV;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGbObj = position;\nvGbV = uv.y;');
 
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
 varying vec3 vGbObj;
+varying float vGbV;
+uniform float uOuterV;
 uniform float uHeat, uTime, uDim, uHeight, uBeat, uBeatPos, uGlassAlpha, uCool, uFinishType, uFinishAmt;
 uniform vec3 uTint, uRim;
 ${SNOISE}
 ${MOLTEN_RAMP}
-${FINISH}`,
+${FINISH}
+${PATTERN}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -89,6 +105,11 @@ ${FINISH}`,
   material.attenuationDistance = attenuationDistance;
   material.attenuationColor = attenuationColor;
   {
+    vec3 tintL = uTint;
+    vec3 attL = attenuationColor;
+    float outer = step(vGbV, uOuterV);
+    float patM = gb_pattern(vGbObj, tintL, attL) * outer;
+    material.attenuationColor = attL;
     vec3 pos = vWorldPosition;
     vec3 v = normalize(cameraPosition - pos);
     vec3 n = transformNormalByInverseViewMatrix(normal, viewMatrix);
@@ -113,20 +134,38 @@ ${FINISH}`,
       vec3 F = EnvironmentBRDF(n, v, material.specularColorBlended, material.specularF90, material.roughness);
       float objMask = clamp((tSample.a - 0.5) * 2.0, 0.0, 1.0);
       vec3 seen = (1.0 - F) * tAttn * tSample.rgb / max(tSample.a, 0.5);
-      behind = mix(envR * attn * 0.55 + uTint * 0.14, seen, objMask);
+      behind = mix(envR * attn * 0.55 + tintL * 0.14, seen, objMask);
       outA = clamp(uGlassAlpha + pow(1.0 - NoV, 2.0) * 0.5, 0.0, 1.0);
     } else {
-      behind = envR * attn * 0.35 + uTint * 0.12;
+      behind = envR * attn * 0.35 + tintL * 0.12;
       totalSpecular *= 0.3; // the inside of the far wall: faint reflections only
       outA = 1.0;
     }
     // dark-field look: light travelling through thick glass at grazing angles makes the
     // silhouette glow in the glass colour while the thin centre stays clear
     float edge = pow(1.0 - NoV, 2.2);
-    behind += (uTint * (edge * 0.55 + 0.03) + uRim * pow(1.0 - NoV, 6.0) * 0.35) * (1.0 - uHeat);
+    behind += (tintL * (edge * 0.55 + 0.03) + uRim * pow(1.0 - NoV, 6.0) * 0.35) * (1.0 - uHeat);
     behind *= (1.0 - 0.75 * clamp(uHeat, 0.0, 1.0)) * mix(0.2, 1.0, uCool);
     if (!gl_FrontFacing) totalSpecular *= mix(0.2, 1.0, uCool);
     outA = mix(outA, 1.0, max(clamp(uHeat * 1.3, 0.0, 1.0), 1.0 - uCool));
+    // opaque glass threads and the lip wrap, encased under the clear surface
+    float aaY = fwidth(vGbObj.y) * 0.9 + 1e-5;
+    float lipM = uPatAmt * smoothstep(uLipY - aaY, uLipY + aaY, vGbObj.y);
+    if (patM + lipM > 0.001) {
+      vec3 diff = vec3(0.4);
+      #ifdef ENVMAP_TYPE_PMREM
+        diff = textureLod(envMap, envMapRotation * n, roughnessToMip(1.0)).rgb * envMapIntensity;
+      #endif
+      vec3 light = diff * 0.55 + 0.42;
+      vec3 thr = uThreadCol * light * (0.7 + 0.3 * NoV);
+      vec3 lipc = uLipCol * (diff * 0.5 + 0.5) * (0.6 + 0.4 * NoV);
+      float front = gl_FrontFacing ? 1.0 : 0.0;
+      thr *= mix(attn * 0.6, vec3(1.0), front); // threads on the far side seen through the glass
+      behind = mix(behind, thr, patM * mix(0.8, 1.0, front));
+      outA = mix(outA, 0.97, patM * front);
+      behind = mix(behind, lipc, lipM);
+      outA = mix(outA, 0.9, lipM);
+    }
     if (uFinishAmt > 0.001) {
       vec3 envRefl = vec3(0.3);
       #ifdef ENVMAP_TYPE_PMREM
@@ -141,7 +180,7 @@ ${FINISH}`,
 #endif`,
       );
   };
-  material.customProgramCacheKey = () => 'glassbreath-glass-v2';
+  material.customProgramCacheKey = () => 'glassbreath-glass-v3';
   return { material, uniforms };
 }
 

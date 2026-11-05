@@ -61,8 +61,12 @@ button { font: inherit; color: inherit; }
 }
 .nav button:hover, .nav button.on { color: var(--ink); }
 .nav button.on { text-decoration: underline; text-decoration-color: var(--molten); text-decoration-thickness: 2px; text-underline-offset: 8px; }
-.nav .stop { margin-left: 12px; border: 1px solid var(--line); }
-.nav .stop:hover { border-color: var(--ink-soft); }
+.nav .stop, .nav .navbtn { border: 1px solid var(--line); color: var(--ink); }
+.nav .stop:hover, .nav .navbtn:hover { border-color: var(--ink-soft); }
+.nav .pill {
+  min-width: 26px; height: 26px; padding: 0 8px; display: inline-grid; place-items: center;
+  background: var(--molten); color: var(--molten-ink); font-weight: 600; font-size: 15px; border-radius: 13px;
+}
 
 /* ---------- buttons ---------- */
 .btn {
@@ -89,27 +93,29 @@ button { font: inherit; color: inherit; }
 .screen { position: fixed; inset: 0; overflow: hidden; }
 
 /* consent */
-#consent .furnace {
-  position: absolute; right: -14vw; top: 50%; transform: translateY(-50%);
-  width: min(56vw, 820px); aspect-ratio: 1; border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(255, 106, 22, 0.3) 0, rgba(255, 106, 22, 0) 70%);
-  display: grid; place-items: center;
+/* The glass canvas sits under every screen. On home it fills the right side
+   and turns finished vessels over a soft furnace glow. */
+.glass-layer {
+  position: fixed; inset: 0;
+  pointer-events: none; transition: opacity 420ms ease-out, transform 700ms cubic-bezier(0.2, 0, 0, 1);
 }
-#consent .furnace::before {
-  content: ''; position: absolute; inset: 11%; border-radius: 50%;
-  background:
-    repeating-linear-gradient(0deg, #241d18 0 3px, transparent 3px 34px),
-    repeating-linear-gradient(90deg, #2c241e 0 60px, #241d18 60px 64px);
+/* Done: slide the vessel left so the panel never covers it. */
+body[data-screen="stage"][data-phase="done"] .glass-layer { transform: translateX(calc((400px + var(--gutter)) / -2)); }
+.glass-layer.fade { opacity: 0; }
+#glass { display: block; width: 100%; height: 100%; }
+body[data-screen="consent"] {
+  --show-left: max(46vw, calc(var(--gutter) + 760px));
 }
-.furnace-mouth {
-  position: relative; width: 48%; aspect-ratio: 1; border-radius: 50%;
-  border: 14px solid #3b2f27;
-  background: radial-gradient(circle at 50% 55%, #fff3cf 0, #ffb648 30%, #f0631a 66%, #8a2606 100%);
-  animation: flicker 3.2s ease-in-out infinite;
+body[data-screen="consent"] .glass-layer {
+  left: var(--show-left);
+  background: radial-gradient(ellipse 46% 50% at 50% 54%, rgba(255, 106, 22, 0.16), rgba(255, 106, 22, 0) 72%);
 }
-@keyframes flicker { 0%, 100% { filter: brightness(1); } 45% { filter: brightness(1.08); } 70% { filter: brightness(0.95); } }
-.furnace-note { position: absolute; right: 7vw; bottom: 7vh; font-size: 27px; transform: rotate(-3deg); width: 360px; line-height: 1.2; }
+body[data-screen="rack"] .glass-layer { visibility: hidden; }
+.showcase-cap {
+  position: absolute; left: var(--show-left); right: 0; bottom: 8vh; text-align: center; padding: 0 16px;
+  font-size: 24px; line-height: 1.2; color: var(--chalk); transform: rotate(-2deg);
+  transition: opacity 420ms ease-out;
+}
 .consent-copy { position: absolute; left: calc(var(--gutter) + 32px); top: 17vh; width: min(820px, 60vw); }
 .consent-copy h1 {
   font-family: var(--display); font-weight: 800; text-transform: uppercase;
@@ -136,7 +142,6 @@ button { font: inherit; color: inherit; }
 .consent-error { margin-top: 18px; color: #ffb08a; font-size: 18px; max-width: 600px; }
 
 /* stage */
-#glass { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .count { position: absolute; left: var(--gutter); top: 13vh; pointer-events: none; }
 .count b { display: block; font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: clamp(84px, 10.4vw, 150px); line-height: 0.85; }
 .count span { display: block; font-family: var(--display); font-weight: 700; text-transform: uppercase; font-size: clamp(26px, 2.8vw, 40px); color: var(--ink-soft); margin-top: 8px; }
@@ -165,13 +170,15 @@ button { font: inherit; color: inherit; }
 .read em { font-style: normal; font-size: 15px; color: var(--ink-soft); }
 
 .done {
-  position: absolute; right: var(--gutter); top: 18vh; width: 380px;
+  position: absolute; right: var(--gutter); top: 18vh; width: 400px;
   background: var(--ground-2); padding: 28px 30px 30px; border-left: 4px solid var(--molten);
 }
 .done-kicker { font-family: var(--hand); font-size: 24px; color: var(--chalk); }
 .done h2 { font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.95; text-transform: uppercase; margin-top: 4px; }
 .done-meta { color: var(--ink-soft); margin-top: 8px; }
-.done .actions { margin-top: 22px; }
+.done-actions { margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.done-actions .wide { grid-column: 1 / -1; justify-content: center; }
+.done-actions .small { justify-content: center; padding: 0 12px; white-space: nowrap; font-size: 20px; gap: 8px; }
 .done-note { margin-top: 16px; font-size: 15px; color: var(--ink-soft); }
 
 .trace-lbl { position: absolute; left: var(--gutter); bottom: 118px; font-size: 16px; color: var(--ink-soft); }
@@ -180,10 +187,10 @@ button { font: inherit; color: inherit; }
 /* rack */
 #rack { overflow-y: auto; padding: 110px var(--gutter) 48px; }
 .rack-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 0 32px; }
-.rack-head h2 { font-family: var(--display); font-weight: 800; font-size: clamp(72px, 8.3vw, 120px); line-height: 0.9; text-transform: uppercase; }
+.rack-head h2 { font-family: var(--display); font-weight: 800; font-size: clamp(60px, 6.4vw, 92px); line-height: 0.9; text-transform: uppercase; }
 .rack-head .sub { font-size: 22px; color: var(--ink-soft); margin-top: 10px; }
 .shelf {
-  list-style: none; margin-top: 56px; padding: 0 32px 0;
+  list-style: none; margin-top: 40px; padding: 0 32px 0;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 40px 24px;
 }
 .shelf li { display: flex; flex-direction: column; }
@@ -209,6 +216,9 @@ dialog.share { width: min(1040px, 94vw); padding: 28px; }
 .share-status { min-height: 2.9em; margin: 14px 0 6px; color: var(--chalk); font-size: 17px; }
 @media (max-height: 800px) { .share-grid { grid-template-columns: minmax(0, 330px) 1fr; } }
 .shelf .del.confirm { color: var(--danger); }
+.rack-foot { margin: 56px 32px 0; }
+.linkish.danger { display: inline-flex; align-items: center; gap: 6px; }
+.linkish.danger:hover { color: var(--danger); }
 .empty { margin: 80px 32px 0; font-size: 26px; font-family: var(--hand); color: var(--chalk); }
 
 /* errors + dialogs */
@@ -313,3 +323,37 @@ body.booting .boot {
 .done-awards li:nth-child(3) { animation-delay: 160ms; }
 .done-awards .ph { color: var(--molten); font-size: 20px; }
 @keyframes award-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Breath orb with no camera preview (sample recording): sit above the hint. */
+.cam.nocam .orb { position: relative; left: 0; top: 0; margin: 0 0 4px; }
+
+/* Things that appear: short fades, no bounce. */
+.done:not([hidden]) { animation: panel-in 380ms cubic-bezier(0.2, 0, 0, 1) both; }
+@keyframes panel-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+.cut:not([hidden]) { animation: fade-in 500ms ease-out both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+dialog[open] { animation: dialog-in 220ms cubic-bezier(0.2, 0, 0, 1) both; }
+dialog[open]::backdrop { animation: fade-in 220ms ease-out both; }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.screen:not([hidden]) { animation: fade-in 260ms ease-out both; }
+
+/* Small status note, bottom centre */
+.toast {
+  position: fixed; z-index: 40; left: 50%; top: 92px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+  background: var(--ground-3); color: var(--ink); border-left: 4px solid var(--molten); font-size: 18px;
+  animation: toast-in 260ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* Narrower windows: a tighter home column so the showcase vessel keeps room. */
+@media (max-width: 1280px) {
+  body[data-screen="consent"] { --show-left: calc(var(--gutter) + 32px + 560px); }
+  .consent-copy { width: 540px; }
+  .consent-copy h1 { font-size: clamp(60px, 6.6vw, 84px); }
+  .steps .ph { font-size: 32px; }
+  .steps b { font-size: 24px; }
+  .steps li + li { padding-left: 16px; }
+  .steps li { padding-right: 12px; }
+  .consent-copy .btn { font-size: 22px; min-height: 54px; padding: 0 20px; }
+}

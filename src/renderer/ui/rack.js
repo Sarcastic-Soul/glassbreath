@@ -55,7 +55,8 @@ export function createRack({ shelf, empty, sub, deleteAllBtn, confirmDialog, sto
     if (!hasProgress) { if (head) head.hidden = true; return; }
     if (!head) {
       head = el('section', 'shop-shelf');
-      shelf.before(head);
+      // Vessels come first; the collection and marks sit below them.
+      (empty ?? shelf).after(head);
     }
     head.classList.add('shop-shelf');
     head.setAttribute('aria-label', 'Your collection');

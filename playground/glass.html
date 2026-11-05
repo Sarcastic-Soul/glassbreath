@@ -21,6 +21,8 @@
     <label class="row"><input type="checkbox" id="embers"> Embers (warm-up)</label>
     <label class="row"><input type="checkbox" id="autoSparks" checked> Sparks on commit</label>
     <label class="row">Spark strength <input type="range" id="sparkK" min="0" max="1" step="0.05" value="0.7"><output id="sparkKOut">0.7</output></label>
+    <label class="row">Sample <select id="sample"></select></label>
+    <label class="row">Pattern <select id="pattern"><option value="">from breathing</option><option value="plain">plain</option><option value="thread">thread wrap</option><option value="feather">feather</option><option value="filigrana">filigrana</option><option value="incalmo">incalmo</option></select></label>
     <label class="row">Finish <select id="finish"><option value="">plain</option><option value="gold">gold</option><option value="crackle">crackle</option><option value="opal">opal</option></select></label>
     <div class="buttons">
       <button id="beat">Heartbeat</button>
@@ -30,6 +32,8 @@
       <button id="snap">Snapshot</button>
       <button id="load">Load last recipe</button>
       <button id="reset">Reset</button>
+      <button id="blow">Blow sample</button>
+      <button id="gallery">Gallery sheet</button>
     </div>
     <p id="stats" aria-live="polite"></p>
     <img id="shot" alt="Last snapshot" hidden>

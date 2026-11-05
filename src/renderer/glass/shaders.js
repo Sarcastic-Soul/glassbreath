@@ -112,3 +112,88 @@ void gb_finish(float type,float amt,vec3 p,vec3 n,vec3 v,float NoV,inout vec3 co
   }
 }
 `;
+
+// Breath patterns drawn on the glass (see pattern.js). Needs SNOISE.
+// gb_band maps height to a band coordinate s (0..n across the decorated region, one
+// unit per breath, spaced by breath timing) and the local band height in world units.
+export const PATTERN_BANDS = 16;
+export const PATTERN = /* glsl */ `
+#define GB_BANDS ${16}
+uniform float uPatType, uPatAmt, uBandN, uLipY;
+uniform float uEdges[GB_BANDS + 1];
+uniform vec2 uRegion;
+uniform vec4 uPat; // x thread width, y wave depth, z combs / lattice count, w lattice twist
+uniform vec3 uBandAtt[GB_BANDS];
+uniform vec3 uBandTint[GB_BANDS];
+uniform vec3 uThreadCol, uLipCol;
+vec2 gb_band(float y){
+  float span = max(uRegion.y - uRegion.x, 1e-3);
+  float yn = (y - uRegion.x) / span;
+  float s = yn, bh = 1.0;
+  for (int k = 0; k < GB_BANDS; k++) {
+    if (float(k) >= uBandN) break;
+    float a = uEdges[k], b = uEdges[k + 1];
+    if (yn >= a || k == 0) { s = float(k) + (yn - a) / max(b - a, 1e-4); bh = max(b - a, 1e-4); }
+  }
+  return vec2(s, bh * span);
+}
+// anti-aliased line of half-width w for a distance d (any units)
+float gb_line(float d, float w){
+  float aa = fwidth(d) * 0.9 + 1e-5;
+  return 1.0 - smoothstep(w - aa, w + aa, d);
+}
+// Returns thread coverage; edits the local glass colours for incalmo.
+float gb_pattern(vec3 p, inout vec3 tint, inout vec3 att){
+  if (uPatAmt < 0.001 || uPatType < 0.5) return 0.0;
+  vec2 sb = gb_band(p.y);
+  float s = sb.x, bh = sb.y;
+  float th = atan(p.z, p.x) * 0.15915494 + 0.5; // 0..1 around the axis
+  float inR = step(0.0, s) * step(s, uBandN);
+  float edge = smoothstep(0.0, 0.25, s) * smoothstep(uBandN, uBandN - 0.25, s);
+  float m = 0.0;
+  if (uPatType < 1.5) {
+    // trailing: one spiral turn per breath
+    float f = s - th;
+    float d = abs(fract(f + 0.5) - 0.5) * bh;
+    float hand = 0.8 + 0.3 * gb_snoise(vec3(th * 7.0, s * 1.3, 0.5)); // hand-pulled thickness
+    m = gb_line(d, uPat.x * hand) * inR;
+  } else if (uPatType < 2.5) {
+    // combed feathers: two threads per breath, dragged up and down by uPat.z combs
+    float phi = th * uPat.z;
+    float q = fract(phi) - 0.5;
+    float dir = mod(floor(phi), 2.0) * 2.0 - 1.0;
+    float pull = uPat.y * dir * pow(1.0 - 2.0 * abs(q), 2.4);
+    float v = (s - pull) * 2.0;
+    float d = abs(fract(v + 0.5) - 0.5);
+    float vw = 2.0 / max(bh, 1e-3); // world -> v units
+    m = gb_line(d, uPat.x * 0.8 * vw) * edge;
+  } else if (uPatType < 3.5) {
+    // filigrana / reticello: two families of fine twisted white threads
+    float a1 = th * uPat.z + s * uPat.w;
+    float a2 = th * uPat.z - s * uPat.w;
+    float d1 = abs(fract(a1 + 0.5) - 0.5), d2 = abs(fract(a2 + 0.5) - 0.5);
+    float circ = 6.2831 * length(p.xz) / uPat.z; // world width of one lattice cell
+    float w = uPat.x * 0.32 / max(circ, 1e-3);
+    float tw1 = 0.55 + 0.45 * abs(sin(a2 * 18.85)); // the twist of each cane
+    float tw2 = 0.55 + 0.45 * abs(sin(a1 * 18.85));
+    m = max(gb_line(d1, w * tw1), gb_line(d2, w * tw2)) * edge;
+  } else {
+    // incalmo: each breath's band a slightly different glass colour, softly fused
+    float k = clamp(floor(s), 0.0, uBandN - 1.0);
+    float fs = s - k;
+    float blend = smoothstep(1.0 - 0.03 / max(bh, 1e-3), 1.0, fs) * step(k + 1.0, uBandN - 0.5);
+    vec3 a = uBandAtt[0], t = uBandTint[0], a2 = uBandAtt[0], t2 = uBandTint[0];
+    for (int i = 0; i < GB_BANDS; i++) {
+      if (float(i) == k) { a = uBandAtt[i]; t = uBandTint[i]; }
+      if (float(i) == k + 1.0) { a2 = uBandAtt[i]; t2 = uBandTint[i]; }
+    }
+    if (s < 0.0) { a = a2 = uBandAtt[0]; t = t2 = uBandTint[0]; }
+    att = mix(att, mix(a, a2, blend), uPatAmt);
+    tint = mix(tint, mix(t, t2, blend), uPatAmt);
+    // a fine pale seam where two colours meet
+    float d = abs(fract(s + 0.5) - 0.5) * bh;
+    m = gb_line(d, uPat.x * 0.3) * 0.5 * inR * step(0.5, s) * step(s, uBandN - 0.5);
+  }
+  return m * uPatAmt;
+}
+`;

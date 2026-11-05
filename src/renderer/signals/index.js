@@ -45,10 +45,30 @@ function keepSize(stream, base) {
   return stream;
 }
 
+// The SDK locks exposure and white balance once processing runs, and many webcam
+// drivers keep that manual setting after the app closes. The next session would
+// then start from the old (often dark) exposure and never adjust. Ask for auto
+// modes first, so the camera adjusts to the room before the SDK locks it again.
+async function unlockAuto(stream, base) {
+  const track = stream.getVideoTracks()[0];
+  if (!track || typeof track.getCapabilities !== 'function') return;
+  const caps = track.getCapabilities() || {};
+  const want = {};
+  if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) want.exposureMode = 'continuous';
+  if (Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('continuous')) want.whiteBalanceMode = 'continuous';
+  if (!Object.keys(want).length) return;
+  try { await track.applyConstraints({ ...base, advanced: [want] }); }
+  catch (e) { console.warn('[signals] could not switch the camera to auto exposure', e); }
+}
+
 async function openCamera() {
   let lastErr;
   for (const video of CAMERA_TRIES) {
-    try { return keepSize(await navigator.mediaDevices.getUserMedia({ video, audio: false }), video); }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      await unlockAuto(stream, video);
+      return keepSize(stream, video);
+    }
     catch (e) {
       lastErr = e;
       // Only a constraint mismatch is worth another try; denial or busy camera is final.

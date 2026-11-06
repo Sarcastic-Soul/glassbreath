@@ -121,6 +121,9 @@ test('beat detector: 70 bpm waveform gives ~70 beats/min, in batches too', () =>
 test('smile score: numeric enum, JSON string enum, missing parts', () => {
   assert.equal(smileScore({ scores: [{ type: 6, confidence: 90 }, { type: 5, confidence: 80 }] }), 0.8);
   assert.equal(smileScore({ scores: [{ type: 'HAPPY', confidence: 42 }] }), 0.42);
+  assert.equal(smileScore({ scores: [{ type: 5, confidence: 0.8 }] }), 0.008);
+  assert.equal(smileScore({ scores: [{ type: 'HAPPY', confidence: 1 }] }), 0.01);
+  assert.equal(smileScore({ scores: [{ type: '5', confidence: 1.01 }] }), 0.0101);
   assert.equal(smileScore({ scores: [{ type: 'NEUTRAL', confidence: 99 }] }), 0);
   assert.equal(smileScore({ scores: [{ type: 'HAPPY' }] }), 0); // default value omitted by toJSON
   assert.equal(smileScore({}), null);

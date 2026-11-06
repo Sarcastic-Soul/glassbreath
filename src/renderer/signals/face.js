@@ -18,8 +18,8 @@ export function smileScore(expression) {
     if (type === HAPPY || type === 'HAPPY' || type === String(HAPPY)) {
       const c = Number(s.confidence ?? 0);
       if (!Number.isFinite(c)) return 0;
-      // Docs say percent; accept 0..1 too, just in case.
-      const v = c > 1 ? c / 100 : c;
+      // SDK confidence is always a percentage in the range 0..100.
+      const v = c / 100;
       return Math.max(0, Math.min(1, v));
     }
   }
